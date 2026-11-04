@@ -1,3 +1,4 @@
+import {SeqCommitSubscriptions} from '../infrastructure/seq-commit-subscriptions';
 import { cancellationFrontier } from './cancellation-frontier';
 import {canonical} from './canonical';
 import {TaskCallEffect} from './task-call-effect';
@@ -10,7 +11,7 @@ import {bindCapabilities} from './capabilities';
 import type { LeaseGuardOptions, InboxQuery, KernelDiagnostic, SessionMessageRequest, SessionSendOptions, ShutdownOptions, ShutdownReport } from '../domain/types';
 import { taskRecoveryIssues } from './recovery-issues';
 import { shutdown } from '../runtime/shutdown';
-import { drainWorker } from '../runtime/worker-drain';
+import { quiesceWorker } from '../runtime/worker-drain';
 import { scanInterval } from '../runtime/scheduling';
 import { scheduleProgram, scheduleTaskSpec } from './schedule-program';
 import { CommitRescanner, type CommitScope } from '../runtime/commit-rescanner';
@@ -143,6 +144,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
     private readonly catalogFs: IFileSystem;
     private readonly catalogRoot: string;
     private catalogListener?: () => void;
+    private readonly commitSubscriptions = new SeqCommitSubscriptions();
     private readonly storageListeners = new Map<SessionId, () => void>();
     private readonly requestedDrains = new Set<SessionId>();
     private readonly draining = new Set<SessionId>();
@@ -377,15 +379,15 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
         return this.shutdownWork;
     }
 
-    /** Retire this worker without changing shared Session controls or aborting accepted work. */
-    drain(options: ShutdownOptions = {}): Promise<import('../domain/types').WorkerDrainReport> {
+    /** Stop admission and polling; retain storage and leases until owned work reaches a boundary. */
+    quiesce(options: ShutdownOptions = {}): Promise<import('../domain/types').WorkerDrainReport> {
         if (this.drainWork) return this.drainWork;
         if (this.shutdownWork) return Promise.reject(kernelError(KernelErrorCode.CONFLICT, 'Session shutdown already started'));
         const timeoutMs = options.timeoutMs ?? 5000;
         if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) return Promise.reject(kernelError(KernelErrorCode.INVALID_SPEC, 'Invalid drain timeout'));
         const started = Date.now(), operationId = createId('drain');
         this.drainingWorker = true; this.poller.dispose(); this.resourcePoller.dispose(); this.rescanner?.dispose();
-        const work = drainWorker(this, timeoutMs).then(result => {
+        const work = quiesceWorker(this, timeoutMs).then(result => {
             this.diagnose({operation: 'worker.drain', stage: 'complete', outcome: result.localIdle ? 'success' : 'blocked',
                 operationId, durationMs: Date.now() - started, errorCode: result.localIdle ? undefined : 'IDLE_TIMEOUT'});
             if (!result.localIdle) this.drainWork = undefined;
@@ -393,6 +395,13 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
         });
         this.drainWork = work;
         return work;
+    }
+
+    /** Retire a quiescent worker without changing shared Session controls or cancelling accepted work. */
+    async drain(options: ShutdownOptions = {}): Promise<import('../domain/types').WorkerDrainReport> {
+        const result = await this.quiesce(options);
+        if (result.localIdle) this.dispose();
+        return result;
     }
 
     async recoveryIssues(sessionId: string, taskId?: string) {
@@ -1288,15 +1297,13 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
         // transaction) although nothing about resources had changed.
         const resources = pathUtils.normalize(resourcesPath(root));
         const log = pathUtils.normalize(eventsPath(root));
-        this.storageListeners.set(sessionId, binding.fs.on('seq:committed', event => {
-            const changed = event.payload.paths.filter(path => pathUtils.isUnder(path, root));
+        this.storageListeners.set(sessionId, this.commitSubscriptions.watch(binding.fs, root, changed => {
             if (this.disposed || !changed.length) return;
             // Event appends wake observers without invalidating task and Session listings.
-            const reason = changed.every(path => pathUtils.normalize(path) === log) ? 'content' : 'structure';
-            if (reason === 'structure') this.rescanner?.wake();
+            const reason = changed.every(path => path === log) ? 'content' : 'structure';
             this.notify(sessionId, undefined, reason);
             this.queueDrain(sessionId);
-            if (event.payload.paths.some(path => pathUtils.normalize(path) === resources)) this.resourcePoller.start(`session:${sessionId}`);
+            if (changed.includes(resources)) this.resourcePoller.start(`session:${sessionId}`);
             // Observers receive notify above; dependent Sessions wake through their own durable inputs.
             this.schedulePoll(sessionId);
         }));

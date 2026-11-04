@@ -25,7 +25,7 @@ export class CommitRescanner {
     dispose() { this.disposed = true; this.poller.dispose(); this.heads.clear(); }
     private async read(fs: IFileSystem, scopes: CommitScope[], changed: Changed) {
         const requests = scopes.flatMap(scope => scope.entries);
-        const values = await fs.meta.seq!.transaction!(tx => tx.getEntriesMany(requests));
+        const values = await fs.meta.seq!.getEntriesMany(requests);
         if (this.disposed) return;
         let offset = 0;
         for (const scope of scopes) {

@@ -67,3 +67,5 @@ pnpm test:package
 - `scripts/check-package.mjs`：仓库外 ESM/CJS、公开入口、NodeNext 声明及运行消费；可传现成 tarball 避免重复打包。
 
 源码入口与发布入口不同，使用 pnpm pack 或明确应用 publishConfig 的制品流程；发布前验证 dist 出口和纯注册表依赖，禁止直接发布源码 manifest。
+
+Session storage commit listeners share one upstream subscription per IFileSystem. The internal ancestor-path router delivers each commit once to affected Session roots and removes the source listener when its last scope is released. This in-memory routing never replaces durable commit watermarks or recovery scans.

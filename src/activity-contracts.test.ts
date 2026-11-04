@@ -112,6 +112,7 @@ it('keeps content streaming off the activity revision and labels remote structur
     const binding = {fs, rootPath: '/s'}, store = new SeqFileKernelStore({fs, rootPath: '/catalog'}, async () => binding);
     for (let i = 0; i < 5; i++) await store.appendEvent(binding, 's', undefined, 'fixture.delta', {index: i});
     const after = await kernel.sessionActivity('s'); expect(after.revision).toBe(before.revision); expect(after.asOfSequence).toBeGreaterThan(before.asOfSequence);
+    await fs.driver.createFile({name: 'markers', type: 'seqfile'});
     const changed = vi.fn(), failed = vi.fn(), scanner = new CommitRescanner(10, () => [{id: 's', fs, structureEntries: [1], entries: [
         {fileIdOrPath: '/markers', key: 'content'}, {fileIdOrPath: indexPath('/s'), key: ACTIVITY_REVISION}]}], changed, failed);
     try {

@@ -428,3 +428,5 @@ Inspection reuses task.call binding validation: exact Effect protocol and plan f
 The result contains identity only, not a completion or physical cleanup acknowledgement. Continue observing caller and target/tree facts separately. task.call.inspect diagnostics report safe captured identities, lookup stage, outcome, classification and duration, never the request or binding body. No storage format changes or second execution index are introduced.
 
 SessionActivity.lastActivityAt 是最后一个有 Task 归属的持久执行事件时间，与事件同事务写入 events.seq 的 last-execution-activity-at。普通读取、租约心跳、无 Task 的结构事件及 task.events.pruned 不更新时间；冷读只查询摘要元数据。旧存储缺失时省略，不能用读取时间或 Session.updatedAt 补齐。
+
+Worker lifecycle: `kernel.quiesce({timeoutMs})` stops admission, dispatch and polling, waits for local work to reach an idle boundary, and retains storage/query capability. A blocked acknowledgement retains leases and work; callers may wait again. `kernel.drain` additionally disposes the quiescent worker. Neither method pauses or cancels durable Session controls; recovery uses the existing committed Task state and identity.

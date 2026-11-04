@@ -108,13 +108,14 @@ it('keeps the final occurrence wait when an earlier child or stale timer is cons
 
 it('batch-reads only commit markers while unchanged scopes remain idle', async () => {
     vi.useFakeTimers(); const {manager} = await createVFS({rootBackend: new MemoryBackend()}); const fs = await manager.openFileSystem('/');
-    const tx = vi.fn(fs.meta.seq!.transaction!.bind(fs.meta.seq!)), changed = vi.fn();
-    const observed = new Proxy(fs, {get(target, key) { return key === 'meta' ? {seq: {transaction: tx}} : Reflect.get(target, key, target); }});
+    const read = vi.fn(fs.meta.seq!.getEntriesMany.bind(fs.meta.seq!)), changed = vi.fn();
+    const tx = vi.fn(() => {throw new Error('Writer transaction must not be used');});
+    const observed = new Proxy(fs, {get(target, key) { return key === 'meta' ? {seq: {transaction: tx, getEntriesMany: read}} : Reflect.get(target, key, target); }});
     const scan = new CommitRescanner(50, () => Array.from({length: 200}, (_, i) => ({id: String(i), fs: observed,
         entries: [{fileIdOrPath: '/events.seq', key: String(i)}]})), changed, error => {throw error;});
-    await vi.advanceTimersByTimeAsync(0); expect(tx).toHaveBeenCalledTimes(1); expect(changed).toHaveBeenCalledTimes(200);
-    changed.mockClear(); tx.mockClear(); await vi.advanceTimersByTimeAsync(150);
-    expect(tx).toHaveBeenCalledTimes(3); expect(changed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(0); expect(read).toHaveBeenCalledTimes(1); expect(tx).not.toHaveBeenCalled(); expect(changed).toHaveBeenCalledTimes(200);
+    changed.mockClear(); read.mockClear(); await vi.advanceTimersByTimeAsync(150);
+    expect(read).toHaveBeenCalledTimes(3); expect(tx).not.toHaveBeenCalled(); expect(changed).not.toHaveBeenCalled();
     scan.dispose(); await manager.dispose();
 });
 
@@ -242,3 +243,13 @@ it('requires host validation for artifact dependencies and never pretends to emb
         storage: {kind: 'test', locator: '/artifact-restore'}, assertExclusive: async () => {}})).rejects.toMatchObject({code: 'ARCHIVE_UNSAFE'});
 });
 async function collect<T>(source: AsyncIterable<T>): Promise<T[]> { const values: T[] = []; for await (const value of source) values.push(value); return values; }
+it('acknowledges a quiescent boundary without closing storage, then recovers the same Session', async () => {
+    const {kernel, session, make} = await setup({pollMs: 0});
+    const task = await session.submit({program: program.manifest, input: 'committed'});
+    await task.wait({timeoutMs: 1000});
+    expect(await kernel.quiesce()).toEqual({status: 'drained', localIdle: true});
+    expect(kernel.isDisposed).toBe(false); expect((await kernel.task('s', task.id)).status).toBe('succeeded');
+    expect(await kernel.drain()).toEqual({status: 'drained', localIdle: true});
+    const recovered = await make(); await recovered.recoverSession('s');
+    expect((await recovered.task('s', task.id)).exit).toEqual((await kernel.task('s', task.id)).exit);
+});
