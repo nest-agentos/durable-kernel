@@ -1,5 +1,5 @@
 import {afterEach, expect, it} from 'vitest';
-import {createVFS, MemoryBackend} from '@itookit/vfs-core';
+import {createVFS, MemoryBackend} from '@nestos/vfs-core';
 import {createHarness, defineTask, type Harness} from './core';
 import type {Decision, DurableTaskProgram, EffectAdapter, JsonValue} from './contracts';
 

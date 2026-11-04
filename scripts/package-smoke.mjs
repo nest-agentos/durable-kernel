@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { createVFS, MemoryBackend } from '@itookit/vfs-core';
-import { createHarness, defineTask, parseKernelEvent, snapshotTaskCallPlan } from '@itookit/durable-kernel/core';
-import { Kernel } from '@itookit/durable-kernel';
+import { createVFS, MemoryBackend } from '@nestos/vfs-core';
+import { createHarness, defineTask, parseKernelEvent, snapshotTaskCallPlan } from '@nestos/durable-kernel/core';
+import { Kernel } from '@nestos/durable-kernel';
 
 const require = createRequire(import.meta.url);
 assert.equal(typeof Kernel, 'function');
-assert.equal(typeof require('@itookit/durable-kernel').Kernel, 'function');
-assert.equal(typeof require('@itookit/durable-kernel/core').createHarness, 'function');
-assert.equal(typeof require('@itookit/durable-kernel').snapshotTaskCallPlan, 'function');
-assert.equal(typeof require('@itookit/durable-kernel/core').snapshotTaskCallPlan, 'function');
-assert.deepEqual(Object.keys(require('@itookit/durable-kernel/contracts')), []);
-assert.deepEqual(Object.keys(await import('@itookit/durable-kernel/contracts')), []);
+assert.equal(typeof require('@nestos/durable-kernel').Kernel, 'function');
+assert.equal(typeof require('@nestos/durable-kernel/core').createHarness, 'function');
+assert.equal(typeof require('@nestos/durable-kernel').snapshotTaskCallPlan, 'function');
+assert.equal(typeof require('@nestos/durable-kernel/core').snapshotTaskCallPlan, 'function');
+assert.deepEqual(Object.keys(require('@nestos/durable-kernel/contracts')), []);
+assert.deepEqual(Object.keys(await import('@nestos/durable-kernel/contracts')), []);
 const { manager } = await createVFS({ rootBackend: new MemoryBackend() });
 const fs = await manager.openFileSystem('/consumer');
 const harness = createHarness({ catalog: { fs, rootPath: '/catalog' } });
@@ -57,9 +57,9 @@ try {
         assert.equal(cancelled.taskId, deferred.id);
     } finally {reader.dispose(); await reader.waitIdle();}
     await observationSmoke(Kernel, 'esm');
-    await observationSmoke(require('@itookit/durable-kernel').Kernel, 'cjs');
+    await observationSmoke(require('@nestos/durable-kernel').Kernel, 'cjs');
     await taskCallSmoke(options => new Kernel(options), 'esm');
-    await taskCallSmoke(options => new (require('@itookit/durable-kernel').Kernel)(options), 'cjs');
+    await taskCallSmoke(options => new (require('@nestos/durable-kernel').Kernel)(options), 'cjs');
     await taskCallSmoke(createHarness, 'core');
     assert.equal((await harness.shutdown()).status, 'stopped');
 } finally { harness.dispose(); await harness.waitIdle(); await manager.dispose(); }
@@ -97,7 +97,7 @@ async function taskCallSmoke(make, mode) {
     try {
         const child = await engine.createSession({id: 'child', storage: {kind: 'owned', locator: `${prefix}/child`}});
         const parent = await engine.createSession({id: 'parent', storage: {kind: 'owned', locator: `${prefix}/parent`}});
-        const snapshotPlan = mode === 'cjs' ? require('@itookit/durable-kernel').snapshotTaskCallPlan : snapshotTaskCallPlan;
+        const snapshotPlan = mode === 'cjs' ? require('@nestos/durable-kernel').snapshotTaskCallPlan : snapshotTaskCallPlan;
         const payload = {z: 1, a: 2};
         const plan = snapshotPlan({targetSessionId: child.id, task: {program: {kind: 'owned.echo', version: '1'}, input: payload}, maxDepth: 2});
         const spec = {program: {kind: 'kernel.call', version: '1'}, input: plan, requestId: 'owned-submission', deferStart: true};

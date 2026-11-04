@@ -1,4 +1,4 @@
-# @itookit/durable-kernel
+# @nestos/durable-kernel
 
 持久执行内核，可独立安装、构建和打包。唯一运行依赖为 vfs-core；不依赖应用、UI、LLM 或具体工具。使用、停止恢复和消息语义见 [README](./README.md)。
 

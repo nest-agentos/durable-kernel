@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createVFS, MemoryBackend, type IFileSystem } from '@itookit/vfs-core';
+import { createVFS, MemoryBackend, type IFileSystem } from '@nestos/vfs-core';
 import { Kernel, KernelErrorCode, type KernelDiagnostic, type KernelOptions } from './index';
 import { createHarness } from './core';
 import { SeqFileKernelStore } from './infrastructure/seqfile/store';

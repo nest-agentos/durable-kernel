@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createVFS, MemoryBackend } from '@itookit/vfs-core';
+import { createVFS, MemoryBackend } from '@nestos/vfs-core';
 import { SeqFileKernelStore } from './infrastructure/seqfile/store';
 import { Kernel } from './application/kernel';
 import { ManagedResourceStore } from './infrastructure/seqfile/managed-resources';

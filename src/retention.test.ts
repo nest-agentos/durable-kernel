@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createVFS, MemoryBackend, type IVFSManager, type IFileSystem } from '@itookit/vfs-core';
+import { createVFS, MemoryBackend, type IVFSManager, type IFileSystem } from '@nestos/vfs-core';
 import { Kernel } from './application/kernel';
 import { SeqFileKernelStore } from './infrastructure/seqfile/store';
 import { addEffect } from './application/effect-utils';

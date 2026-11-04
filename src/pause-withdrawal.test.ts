@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { createVFS, MemoryBackend, type IVFSManager } from '@itookit/vfs-core';
+import { createVFS, MemoryBackend, type IVFSManager } from '@nestos/vfs-core';
 import { SeqFileKernelStore, type EffectClaim } from './infrastructure/seqfile/store';
 import { addEffect } from './application/effect-utils';
 import type { ResolvedStorageBinding, TaskRecord } from './domain/types';

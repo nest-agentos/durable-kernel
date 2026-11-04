@@ -1,4 +1,4 @@
-import type {ISeqFileTransaction} from '@itookit/vfs-core';
+import type {ISeqFileTransaction} from '@nestos/vfs-core';
 import type {TaskRecord, TaskTreeCancellationOptions, TaskTreeCancellationReceipt} from '../../domain/types';
 import {KernelErrorCode, kernelError} from '../../domain/errors';
 import {taskTreeIds} from '../../domain/task-tree';

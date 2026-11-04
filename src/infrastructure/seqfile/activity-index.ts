@@ -1,4 +1,4 @@
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import {kernelError, KernelErrorCode} from '../../domain/errors';
 import type { ResolvedStorageBinding, SessionRecord, TaskRecord, TaskStatus } from '../../domain/types';
 import { taskActivity, type SessionActivity, type TaskActivity, type TaskActivityPhase } from '../../domain/activity';

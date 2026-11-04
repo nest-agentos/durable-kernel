@@ -3,7 +3,7 @@ import {declareEffectLayoutTx} from './effect-layout';
 import { indexTaskActivity } from './activity-index';
 // SeqFileKernelStore 的领域辅助函数（任务、租约、索引、资源、预算、上下文、等待）。
 // 底层 SeqFile 原语（路径/键名/编码/事务/事件追加）在 seqfile-core.ts，此处 re-export。
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type {
     BudgetAccount,
     ContextBranch,

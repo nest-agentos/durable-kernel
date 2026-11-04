@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createVFS, MemoryBackend, type ISeqFileTransaction } from '@itookit/vfs-core';
+import { createVFS, MemoryBackend, type ISeqFileTransaction } from '@nestos/vfs-core';
 import { Kernel, type DurableTaskProgram, type TaskRecord, type WaitSpec } from './index';
 import { hydrateTaskWaitEventsTx } from './infrastructure/seqfile/store-helpers';
 import { taskPath } from './infrastructure/seqfile/seqfile-core';

@@ -1,4 +1,4 @@
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type { TaskRecord } from '../../domain/types';
 import { appendEventTx } from './seqfile-core';
 

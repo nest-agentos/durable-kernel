@@ -1,5 +1,5 @@
 import {afterEach, expect, it, vi} from 'vitest';
-import {createVFS, MemoryBackend} from '@itookit/vfs-core';
+import {createVFS, MemoryBackend} from '@nestos/vfs-core';
 import {Kernel, type KernelOptions} from './index';
 import {CommitRescanner, type CommitScope} from './runtime/commit-rescanner';
 import {ArchiveHash} from './application/archive-hash';

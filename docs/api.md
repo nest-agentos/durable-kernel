@@ -6,15 +6,15 @@
 
 | 入口 | 用途 |
 | --- | --- |
-| `@itookit/durable-kernel/core` | `createHarness()`、`defineTask()`、`Harness` / `Session` / `Task`、资源和缓存等常用类型 |
-| `@itookit/durable-kernel` | 上述入口及完整 `Kernel`、兼容句柄、注册表、状态投影、存储诊断接口 |
-| `@itookit/durable-kernel/contracts` | 完整的领域、资源、缓存、交互类型；使用 `import type` |
+| `@nestos/durable-kernel/core` | `createHarness()`、`defineTask()`、`Harness` / `Session` / `Task`、资源和缓存等常用类型 |
+| `@nestos/durable-kernel` | 上述入口及完整 `Kernel`、兼容句柄、注册表、状态投影、存储诊断接口 |
+| `@nestos/durable-kernel/contracts` | 完整的领域、资源、缓存、交互类型；使用 `import type` |
 
 `/core` 提供 canonical 操作及 `EventEnvelope`、`ExitRecord`、`WaitSpec` 等关联类型；完整领域类型还可从 `/contracts` 导入。托管资源句柄明确命名为 `ManagedHandle`；根入口的旧能力句柄 `ResourceHandle` 保留原语义。
 
 ```ts
-import { createHarness, defineTask } from '@itookit/durable-kernel/core';
-import type { EventEnvelope, ExitRecord, WaitSpec } from '@itookit/durable-kernel/core';
+import { createHarness, defineTask } from '@nestos/durable-kernel/core';
+import type { EventEnvelope, ExitRecord, WaitSpec } from '@nestos/durable-kernel/core';
 ```
 
 Session 是事务和调度控制边界，一个 Session 可以包含多个并发 Task。Task 运行固定版本的 Program；EffectAdapter 执行外部副作用。库不包含 LLM、聊天 turn、工具业务规则或网络 IPC transport。

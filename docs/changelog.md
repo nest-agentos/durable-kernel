@@ -10,7 +10,7 @@
 
 新增受管 Task 调用：kernel.call / task.call、确切计划能力、跨 Session 原任务核对与取消屏障、深度继承和资源收尾观察。Session 存储 incarnation 阻止迟到调用进入删除重建或导入的替代实例。该能力不包含应用的 Agent/Flow 定义解析、原生上下文或跨调用 token 预算预留策略。
 
-首版独立持久执行内核，唯一运行依赖为 `@itookit/vfs-core@5.3.3`；公开根、`/core` 与仅类型的 `/contracts`，提供 ESM、CommonJS 和对应类型声明。
+首版独立持久执行内核，唯一运行依赖为 `@nestos/vfs-core@5.3.3`；公开根、`/core` 与仅类型的 `/contracts`，提供 ESM、CommonJS 和对应类型声明。
 
 - Session 内并发 Task、依赖和任务树，Program / Decision / Effect 的事务提交与恢复。
 - Session/Task 持久消息、消费确认与幂等请求；同机共享事务存储的多进程通信。

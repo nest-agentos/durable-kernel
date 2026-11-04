@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createVFS, MemoryBackend, type IFileSystem, type IVFSManager } from '@itookit/vfs-core';
+import { createVFS, MemoryBackend, type IFileSystem, type IVFSManager } from '@nestos/vfs-core';
 import { Kernel } from './application/kernel';
 import type {
     DurableTaskProgram,

@@ -1,4 +1,4 @@
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type { EventEnvelope, EventPage, EventQuery, ResolvedStorageBinding, SessionEventSnapshot, TaskEventSnapshot, TaskRecord } from '../../domain/types';
 import { KernelError, KernelErrorCode, kernelError } from '../../domain/errors';
 import { decode, eventsPath, ensureTaskEventIndexTx, taskEventCountKey, taskEventFirstKey, taskEventKey } from './seqfile-core';

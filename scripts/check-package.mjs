@@ -19,18 +19,18 @@ try {
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
     const deps = [tarball, ...(process.env.DURABLE_KERNEL_VFS_CORE_TARBALL ? [resolve(process.env.DURABLE_KERNEL_VFS_CORE_TARBALL)] : [])];
     run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...deps]);
-    const installedRoot = join(consumer, 'node_modules/@itookit/durable-kernel');
+    const installedRoot = join(consumer, 'node_modules/@nestos/durable-kernel');
     const installed = JSON.parse(readFileSync(join(installedRoot, 'package.json'), 'utf8'));
-    assert.deepEqual(Object.keys(installed.dependencies), ['@itookit/vfs-core']);
+    assert.deepEqual(Object.keys(installed.dependencies), ['@nestos/vfs-core']);
     assert.ok(!Object.values(installed.dependencies).some(value => /^(workspace:|link:|file:)/.test(value)));
     for (const path of ['README.md', 'docs/api.md', 'docs/events.md', 'docs/storage.md', 'docs/scheduling.md', 'docs/archives.md', 'docs/harness-scenarios.md', 'docs/changelog.md']) {
         assert.ok(readFileSync(join(installedRoot, path), 'utf8').trim().length, `Missing package documentation: ${path}`);
     }
     copyFileSync(join(root, 'scripts/package-smoke.mjs'), join(consumer, 'smoke.mjs'));
     process.stdout.write(run('node', ['smoke.mjs']));
-    const source = `import { Kernel } from '@itookit/durable-kernel';
-import { createHarness, snapshotTaskCallPlan, type Harness, type Task, type EventEnvelope, type ExitRecord, type WaitSpec, type TaskCallPlan, type TaskSpec, type TaskSubmissionReceipt } from '@itookit/durable-kernel/core';
-import type { EffectExecutionContext, SessionHandle, TaskCancellationOptions, TaskCancellationReceipt } from '@itookit/durable-kernel/contracts';
+    const source = `import { Kernel } from '@nestos/durable-kernel';
+import { createHarness, snapshotTaskCallPlan, type Harness, type Task, type EventEnvelope, type ExitRecord, type WaitSpec, type TaskCallPlan, type TaskSpec, type TaskSubmissionReceipt } from '@nestos/durable-kernel/core';
+import type { EffectExecutionContext, SessionHandle, TaskCancellationOptions, TaskCancellationReceipt } from '@nestos/durable-kernel/contracts';
 export type Consumer = [Kernel, Harness, SessionHandle, typeof createHarness, EventEnvelope, ExitRecord, WaitSpec];
 export function admission(harness: Harness, sessionId: string, spec: TaskSpec): Promise<TaskSubmissionReceipt | undefined> {
     return harness.readTaskSubmissionReceipt(sessionId, spec);

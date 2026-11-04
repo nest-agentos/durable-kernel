@@ -1,4 +1,4 @@
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type { CacheEntry, CacheNamespace, CachePublish, CacheRead, CacheReceipt, CacheSpec, CacheManagementAction, CacheManagementReceipt } from '../../domain/cache';
 import type { ResourceHandle } from '../../domain/types';
 import { assertDurableValue } from '../../application/durability';

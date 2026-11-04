@@ -1,6 +1,6 @@
 import type { CacheSpec, CacheRead, CachePublish, CacheNamespace, CacheEntry, CacheReceipt, CacheManagementAction, CacheManagementReceipt } from './cache';
 export * from './cache';
-import type { IFileSystem } from '@itookit/vfs-core';
+import type { IFileSystem } from '@nestos/vfs-core';
 import type { InteractionRecord, InteractionRequest, InteractionResponse } from './interaction';
 
 export * from './interaction';

@@ -1,6 +1,6 @@
 import {taskTreeIds} from '../../domain/task-tree';
 import {readSessionTasksTx} from './task-tree';
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type { TaskControl, TaskControlOptions, TaskRecord, TaskSignal } from '../../domain/types';
 import { KernelErrorCode, kernelError } from '../../domain/errors';
 import { assertSharedLeaseTx } from './shared-lease';

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'tsup';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const localDriver = createRequire(import.meta.url).resolve('@itookit/vfsdriver-local');
+const localDriver = createRequire(import.meta.url).resolve('@nestos/vfsdriver-local');
 const nativeModules = dirname(dirname(createRequire(localDriver).resolve('better-sqlite3/package.json')));
 let bundle: string, root: string;
 const children: ChildProcess[] = [];
@@ -55,7 +55,7 @@ async function crash(child: ChildProcess, action: string, args?: unknown) {
 beforeAll(async () => {
     bundle = await mkdtemp(join(tmpdir(), 'kernel-worker-build-'));
     await build({ config: false, entry: [join(here, 'ipc-worker.ts')], outDir: bundle, format: ['cjs'],
-        outExtension: () => ({ js: '.cjs' }), noExternal: ['@itookit/vfs-core', '@itookit/vfsdriver-local', '@itookit/vfsdriver-local/node', 'yaml', 'ignore'],
+        outExtension: () => ({ js: '.cjs' }), noExternal: ['@nestos/vfs-core', '@nestos/vfsdriver-local', '@nestos/vfsdriver-local/node', 'yaml', 'ignore'],
         external: ['better-sqlite3'], splitting: false, silent: true, dts: false });
 }, 30_000);
 afterAll(async () => { if (bundle) await rm(bundle, { recursive: true, force: true }); });

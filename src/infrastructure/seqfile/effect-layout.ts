@@ -1,4 +1,4 @@
-import type {ISeqFileTransaction} from '@itookit/vfs-core';
+import type {ISeqFileTransaction} from '@nestos/vfs-core';
 import type {SessionRecord, TaskRecord} from '../../domain/types';
 import {hasUnboundedEffect} from '../../domain/effect-deadline';
 import {assertSessionLayout, currentSessionLayout, UNBOUNDED_EFFECT_CAPABILITY} from './session-layout';

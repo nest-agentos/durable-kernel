@@ -1,4 +1,4 @@
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type { ManagedResource, ManagedHandle, ResourceClaim, ResourceCommand, ResourceRequestSnapshot, ResourceResult, ManagedResourceRef, ManagedGrant, ResourceCleanup, ManagedResourceAdapter, ResourceCleanupReceipt, ResourceQuery, ResourcePage, ResourceRequestInfo, ManagedAuthority, ResourceAuthority, AuthorityClaim } from '../../domain/resource-api';
 import type { ResolvedStorageBinding, ResourceRight } from '../../domain/types';
 import { assertDurableValue } from '../../application/durability';

@@ -1,5 +1,5 @@
 import {afterEach, expect, it, vi} from 'vitest';
-import {createVFS, MemoryBackend} from '@itookit/vfs-core';
+import {createVFS, MemoryBackend} from '@nestos/vfs-core';
 import {Kernel, taskStat, type TaskCallPlan, type EffectExecutionContext, type TaskRecord} from './index';
 import {normalizeEffect, addEffect, executeEffectWithDeadline} from './application/effect-utils';
 import {SeqFileKernelStore, type EffectClaim} from './infrastructure/seqfile/store';

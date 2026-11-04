@@ -1,4 +1,4 @@
-import type { IFileSystem, ISeqFileTransaction } from '@itookit/vfs-core';
+import type { IFileSystem, ISeqFileTransaction } from '@nestos/vfs-core';
 import { transaction } from './seqfile-core';
 
 /** Resource-only writes have a cheap durable marker for cross-process reconciliation. */

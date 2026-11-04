@@ -1,4 +1,4 @@
-import type {ISeqFileTransaction} from '@itookit/vfs-core';
+import type {ISeqFileTransaction} from '@nestos/vfs-core';
 import type {TaskSpec, TaskSubmissionReceipt} from '../../domain/types';
 import {KernelErrorCode, kernelError} from '../../domain/errors';
 import {assertDurableValue} from '../../application/durability';

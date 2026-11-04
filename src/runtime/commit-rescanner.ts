@@ -1,4 +1,4 @@
-import type { IFileSystem } from '@itookit/vfs-core';
+import type { IFileSystem } from '@nestos/vfs-core';
 import { DurablePoller } from './durable-poller';
 
 export interface CommitScope { id: string; fs: IFileSystem; entries: Array<{fileIdOrPath: string; key: string}>; structureEntries?: number[]; }

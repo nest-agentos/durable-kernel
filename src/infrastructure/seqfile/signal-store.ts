@@ -1,5 +1,5 @@
 import type { SignalOptions, SignalReceipt, TaskRecord, TaskSignal } from '../../domain/types';
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import { assertDurableValue } from '../../application/durability';
 import { canonical } from '../../application/canonical';
 import { KernelErrorCode, kernelError } from '../../domain/errors';

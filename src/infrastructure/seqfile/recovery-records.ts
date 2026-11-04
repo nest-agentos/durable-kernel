@@ -1,4 +1,4 @@
-import type {ISeqFileTransaction} from '@itookit/vfs-core';
+import type {ISeqFileTransaction} from '@nestos/vfs-core';
 import type {TaskRecord} from '../../domain/types';
 import {activityKey} from './activity-index';
 import {decode, taskPath} from './seqfile-core';

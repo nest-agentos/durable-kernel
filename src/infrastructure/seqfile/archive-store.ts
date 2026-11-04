@@ -1,4 +1,4 @@
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import {indexTaskActivity} from './activity-index';
 import type { ArchiveExportOptions, ArchiveImportOptions, ArchiveImportReport, ArchiveManifest, ArchiveRecord, ParsedArchive } from '../../domain/archive';
 import type { ResolvedStorageBinding, SessionRecord, TaskRecord } from '../../domain/types';

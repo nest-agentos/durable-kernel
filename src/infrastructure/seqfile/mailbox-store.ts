@@ -1,4 +1,4 @@
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type { CrossSessionMessage, InboxPage, InboxQuery, LeaseGuardOptions, SessionMessageRequest, TaskMessageRequest, TaskRecord } from '../../domain/types';
 import { assertDurableValue } from '../../application/durability';
 import { appendEventTx, decode, encode, inboxKey, messagesPath, outboxKey } from './seqfile-core';

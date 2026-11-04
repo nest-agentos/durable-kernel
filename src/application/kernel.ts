@@ -16,7 +16,7 @@ import { scheduleProgram, scheduleTaskSpec } from './schedule-program';
 import { CommitRescanner, type CommitScope } from '../runtime/commit-rescanner';
 import { ACTIVITY_REVISION, readSessionActivity } from '../infrastructure/seqfile/activity-index';
 import { createArchiveApi } from '../public/archive';
-import { EventBus, FSError, pathUtils, type IFileSystem } from '@itookit/vfs-core';
+import { EventBus, FSError, pathUtils, type IFileSystem } from '@nestos/vfs-core';
 import { EffectRegistry, ProgramRegistry, StorageResolverRegistry, WorkspaceRegistry } from '../ports/registry';
 import type { KernelPlugin, KernelRegistration } from '../ports/plugin';
 import { DurablePoller } from '../runtime/durable-poller';

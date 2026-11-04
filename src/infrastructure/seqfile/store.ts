@@ -8,7 +8,7 @@ import { signalTaskTx, validateSignal } from './signal-store';
 import { ACTIVITY_REVISION, activityKey, indexTaskActivity } from './activity-index';
 import { refreshRecoveryRecordsTx } from './recovery-records';
 import type { LeaseGuardOptions } from '../../domain/types';
-import type { ISeqFileTransaction } from '@itookit/vfs-core';
+import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import { assertSharedLeaseTx } from './shared-lease';
 import { enqueueMessageTx, deliverMessageTx, consumeMessageTx, pruneMessagesTx, acknowledgeMessageSettlementTx, enqueueSessionMessageTx, inboxPageTx, acknowledgeSessionMessageTx } from './mailbox-store';
 import { executeResourceTx, type PreparedResourceCommand } from './managed-resources';
@@ -1319,7 +1319,7 @@ export class SeqFileKernelStore {
         });
     }
 
-    private async assertEffectClaimTx(tx: import('@itookit/vfs-core').ISeqFileTransaction, binding: ResolvedStorageBinding, claim: EffectClaim): Promise<void> {
+    private async assertEffectClaimTx(tx: import('@nestos/vfs-core').ISeqFileTransaction, binding: ResolvedStorageBinding, claim: EffectClaim): Promise<void> {
         const task = await requireTaskTx(tx, binding.rootPath, claim.taskId);
         const effect = task.effects[claim.effectId];
         if (!effectClaimMatches(effect, claim) || (effect.currentAttempt?.leaseUntil ?? 0) <= Date.now() || await hasCancelledAncestorTx(tx, binding.rootPath, task)) throw new Error('Stale effect claim');

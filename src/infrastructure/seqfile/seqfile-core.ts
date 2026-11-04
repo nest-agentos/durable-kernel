@@ -2,7 +2,7 @@
 // SeqFile 基础设施原语：目录/文件布局、路径/键名、编码、事务、事件追加。
 // 供 store.ts 与 store-helpers.ts 复用，消除单一巨型辅助文件。
 
-import type { IFileSystem, ISeqFileOperations, ISeqFileTransaction } from '@itookit/vfs-core';
+import type { IFileSystem, ISeqFileOperations, ISeqFileTransaction } from '@nestos/vfs-core';
 import type { EventEnvelope, ResolvedStorageBinding, SessionRecord } from '../../domain/types';
 import { currentSessionLayout, assertSessionLayout } from './session-layout';
 import { KernelErrorCode, kernelError } from '../../domain/errors';

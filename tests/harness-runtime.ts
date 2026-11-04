@@ -1,4 +1,4 @@
-import type {IFileSystem} from '@itookit/vfs-core';
+import type {IFileSystem} from '@nestos/vfs-core';
 import {createHarness, defineTask} from '../src/core';
 import type {DurableTaskProgram, JsonValue, TaskCallPlan} from '../src/contracts';
 

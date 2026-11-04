@@ -1,5 +1,5 @@
 import {afterEach, expect, it, vi} from 'vitest';
-import {createVFS, MemoryBackend} from '@itookit/vfs-core';
+import {createVFS, MemoryBackend} from '@nestos/vfs-core';
 import {Kernel, type DurableTaskProgram} from './index';
 import {indexPath, taskPath, eventsPath, appendEventTx} from './infrastructure/seqfile/seqfile-core';
 import {ACTIVITY_REVISION, activityKey} from './infrastructure/seqfile/activity-index';
