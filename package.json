@@ -1,0 +1,109 @@
+{
+  "name": "@itookit/durable-kernel",
+  "version": "0.1.0",
+  "description": "Durable Session/Task scheduling and resource kernel",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    "./core": {
+      "types": "./src/core.ts",
+      "import": "./src/core.ts",
+      "default": "./src/core.ts"
+    },
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./contracts": {
+      "types": "./src/contracts.ts",
+      "import": "./src/contracts.ts",
+      "default": "./src/contracts.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist",
+    "test:unit": "vitest run src",
+    "test:integration": "vitest run tests",
+    "prepack": "pnpm build",
+    "test:package": "node scripts/check-package.mjs"
+  },
+  "dependencies": {
+    "@itookit/vfs-core": "5.3.3"
+  },
+  "devDependencies": {
+    "rimraf": "^6.1.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "@itookit/vfsdriver-local": "5.3.1",
+    "@types/node": "^22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        },
+        "require": {
+          "types": "./dist/index.d.cts",
+          "default": "./dist/index.cjs"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/core.d.ts",
+          "default": "./dist/core.js"
+        },
+        "require": {
+          "types": "./dist/core.d.cts",
+          "default": "./dist/core.cjs"
+        }
+      },
+      "./contracts": {
+        "import": {
+          "types": "./dist/contracts.d.ts",
+          "default": "./dist/contracts.js"
+        },
+        "require": {
+          "types": "./dist/contracts.d.cts",
+          "default": "./dist/contracts.cjs"
+        }
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "ISC",
+  "packageManager": "pnpm@10.20.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nest-agentos/durable-kernel.git"
+  },
+  "keywords": [
+    "durable",
+    "workflow",
+    "session",
+    "task",
+    "ipc",
+    "recovery"
+  ],
+  "homepage": "https://github.com/nest-agentos/durable-kernel#readme",
+  "bugs": {
+    "url": "https://github.com/nest-agentos/durable-kernel/issues"
+  }
+}
