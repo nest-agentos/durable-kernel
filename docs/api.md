@@ -430,3 +430,5 @@ The result contains identity only, not a completion or physical cleanup acknowle
 SessionActivity.lastActivityAt 是最后一个有 Task 归属的持久执行事件时间，与事件同事务写入 events.seq 的 last-execution-activity-at。普通读取、租约心跳、无 Task 的结构事件及 task.events.pruned 不更新时间；冷读只查询摘要元数据。旧存储缺失时省略，不能用读取时间或 Session.updatedAt 补齐。
 
 Worker lifecycle: `kernel.quiesce({timeoutMs})` stops admission, dispatch and polling, waits for local work to reach an idle boundary, and retains storage/query capability. A blocked acknowledgement retains leases and work; callers may wait again. `kernel.drain` additionally disposes the quiescent worker. Neither method pauses or cancels durable Session controls; recovery uses the existing committed Task state and identity.
+
+`quiesce({detachObservations:true})` stops local read-only `waitForObservation` waits and leaves their durable Effect leases intact for recovery. It does not cancel the target Task or publish an Effect failure. The default drain continues to wait for observations. Active work outside an observation still drains to its boundary before storage is released; noncooperative work keeps `localIdle: false`.

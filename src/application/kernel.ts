@@ -116,6 +116,9 @@ export interface KernelOptions {
 }
 
 export class Kernel implements KernelRegistration, KernelViewPort, KernelInspectionPort {
+    private detachObservations=false;
+    private readonly drainingObservations = new Set<AbortController>();
+    private readonly observationDrainReason=Object.assign(new Error('Worker observation drained'),{code:'WORKER_OBSERVATION_DRAINED'});
     private readonly authorizeTaskCall?: TaskCallAuthority;
     readonly archives: import('../domain/archive').SessionArchiveApi;
     private readonly resourcePoller: DurablePoller<string>;
@@ -380,13 +383,15 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
     }
 
     /** Stop admission and polling; retain storage and leases until owned work reaches a boundary. */
-    quiesce(options: ShutdownOptions = {}): Promise<import('../domain/types').WorkerDrainReport> {
+    quiesce(options: ShutdownOptions & {detachObservations?:boolean} = {}): Promise<import('../domain/types').WorkerDrainReport> {
         if (this.drainWork) return this.drainWork;
         if (this.shutdownWork) return Promise.reject(kernelError(KernelErrorCode.CONFLICT, 'Session shutdown already started'));
         const timeoutMs = options.timeoutMs ?? 5000;
         if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) return Promise.reject(kernelError(KernelErrorCode.INVALID_SPEC, 'Invalid drain timeout'));
         const started = Date.now(), operationId = createId('drain');
         this.drainingWorker = true; this.poller.dispose(); this.resourcePoller.dispose(); this.rescanner?.dispose();
+        this.detachObservations=options.detachObservations===true;
+        if(this.detachObservations)for(const observer of this.drainingObservations)observer.abort(this.observationDrainReason);
         const work = quiesceWorker(this, timeoutMs).then(result => {
             this.diagnose({operation: 'worker.drain', stage: 'complete', outcome: result.localIdle ? 'success' : 'blocked',
                 operationId, durationMs: Date.now() - started, errorCode: result.localIdle ? undefined : 'IDLE_TIMEOUT'});
@@ -1668,7 +1673,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
                 binding, task.id, effect.id, claim.effect.currentAttempt!.leaseToken, result,
             );
         } catch (error) {
-            if (this.disposed) return;
+            if (this.disposed || this.drainingWorker && error===this.observationDrainReason) return;
             try {
                 const failedAdapter = this.effects.resolve(effect.kind, effect.version);
                 const indeterminate = !controller.signal.aborted && failedAdapter.failureOutcome?.(error) === 'indeterminate';
@@ -1695,9 +1700,11 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
         const started = Date.now(); let outcome: 'success' | 'failure' = 'failure', errorCode: string | undefined;
         this.diagnose({operation: 'effect.observe', stage: 'yield', outcome: 'blocked', ...identity,
             operationId: effectControllerKey(identity.sessionId, identity.taskId, identity.effectId), durationMs: 0});
-        try {const value = await permit.observe(observe, signal); outcome = 'success'; return value;}
+        const observer=new AbortController();this.drainingObservations.add(observer);
+        if(this.detachObservations)observer.abort(this.observationDrainReason);
+        try {const value = await permit.observe(observe, AbortSignal.any([signal,observer.signal])); outcome = 'success'; return value;}
         catch (error) {errorCode = diagnosticCode(error); throw error;}
-        finally {this.diagnose({operation: 'effect.observe', stage: signal.aborted ? 'aborted' : 'resume', outcome,
+        finally {this.drainingObservations.delete(observer);this.diagnose({operation: 'effect.observe', stage: observer.signal.aborted ? 'drained' : signal.aborted ? 'aborted' : 'resume', outcome,
             operationId: effectControllerKey(identity.sessionId, identity.taskId, identity.effectId), ...identity,
             durationMs: Date.now() - started, ...(outcome === 'failure' ? {errorCode: signal.aborted ? 'EFFECT_OBSERVATION_ABORTED' : errorCode} : {})});}
     }

@@ -121,3 +121,14 @@ it('reports a blocked worker drain while observation is active and drains after 
     expect(kernel.isDisposed).toBe(false); complete.resolve(); await kernel.waitIdle();
     expect(await kernel.drain({timeoutMs: 1000})).toEqual({status: 'drained', localIdle: true});
 });
+
+it('detaches an explicitly drained observation without completing or cancelling its durable Effect',async()=>{
+    const {kernel,sessions}=await setup(),entered=deferred();
+    kernel.registerEffect({kind:'observe-fixture',version:'1',async execute(_request,context){
+        return context.waitForObservation!(()=>{entered.resolve();return new Promise(()=>{});});
+    }});
+    const task=await sessions[0].submit({program:program.manifest,input:0});await entered.promise;
+    expect(await kernel.quiesce({timeoutMs:1000,detachObservations:true})).toEqual({status:'drained',localIdle:true});
+    expect(kernel.isDisposed).toBe(false);
+    expect((await kernel.task('s0',task.id)).effects.run.status).toBe('leased');
+});
