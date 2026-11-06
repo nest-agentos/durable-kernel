@@ -118,6 +118,7 @@ export interface KernelOptions {
 export class Kernel implements KernelRegistration, KernelViewPort, KernelInspectionPort {
     private detachObservations=false;
     private readonly drainingObservations = new Set<AbortController>();
+    private readonly managedObservations = new Set<AbortController>();
     private readonly observationDrainReason=Object.assign(new Error('Worker observation drained'),{code:'WORKER_OBSERVATION_DRAINED'});
     private readonly authorizeTaskCall?: TaskCallAuthority;
     readonly archives: import('../domain/archive').SessionArchiveApi;
@@ -355,7 +356,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
     async waitIdle(timeoutMs = 5000): Promise<void> {
         if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) throw new Error('Invalid idle timeout');
         const startedAt = Date.now();
-        while (this.admittedOperations > 0 || this.active > 0 || this.activeEffects > 0 || this.draining.size > 0 || !this.poller.isIdle || !this.resourcePoller.isIdle || !this.managedResources.isIdle || this.rescanner?.isIdle === false) {
+        while (this.admittedOperations > 0 || this.active > 0 || this.activeEffects > 0 || this.managedObservations.size > 0 || this.draining.size > 0 || !this.poller.isIdle || !this.resourcePoller.isIdle || !this.managedResources.isIdle || this.rescanner?.isIdle === false) {
             if (Date.now() - startedAt >= timeoutMs) throw kernelError(KernelErrorCode.IDLE_TIMEOUT, 'Kernel still has in-flight operations');
             await new Promise(resolve => setTimeout(resolve, 10));
         }
@@ -382,6 +383,12 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
         return this.shutdownWork;
     }
 
+    /** Begin irreversible host retirement while accepted producers finish their metadata checkpoints. */
+    beginObservationDrain(): void {
+        this.detachObservations = true;
+        for (const observer of this.drainingObservations) observer.abort(this.observationDrainReason);
+    }
+
     /** Stop admission and polling; retain storage and leases until owned work reaches a boundary. */
     quiesce(options: ShutdownOptions & {detachObservations?:boolean} = {}): Promise<import('../domain/types').WorkerDrainReport> {
         if (this.drainWork) return this.drainWork;
@@ -390,8 +397,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
         if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) return Promise.reject(kernelError(KernelErrorCode.INVALID_SPEC, 'Invalid drain timeout'));
         const started = Date.now(), operationId = createId('drain');
         this.drainingWorker = true; this.poller.dispose(); this.resourcePoller.dispose(); this.rescanner?.dispose();
-        this.detachObservations=options.detachObservations===true;
-        if(this.detachObservations)for(const observer of this.drainingObservations)observer.abort(this.observationDrainReason);
+        if (options.detachObservations) this.beginObservationDrain();
         const work = quiesceWorker(this, timeoutMs).then(result => {
             this.diagnose({operation: 'worker.drain', stage: 'complete', outcome: result.localIdle ? 'success' : 'blocked',
                 operationId, durationMs: Date.now() - started, errorCode: result.localIdle ? undefined : 'IDLE_TIMEOUT'});
@@ -1607,7 +1613,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
     ): Promise<void> {
         const requested = task.effects[effectId]?.request;
         if (!requested || !this.effects.has(requested.kind, requested.version)) return;
-        if (this.disposed || this.shutdownWork || this.drainingWorker) return;
+        if (this.disposed || this.shutdownWork || this.drainingWorker || this.detachObservations) return;
         const permit = this.effectWorkSlots.tryAcquire();
         if (!permit) return;
         this.activeEffects++;
@@ -1642,8 +1648,8 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
                 sessionId: task.sessionId, taskId: task.id, effectId: effect.id, idempotencyKey: effect.idempotencyKey,
                 attemptId: claim.effect.currentAttempt!.id, attemptNumber: claim.effect.attemptCount,
                 abortSignal: controller.signal, deadlineAt: claim.effect.deadlineAt, grants,
-                waitForObservation: <T>(observe: (signal: AbortSignal) => Promise<T>) => this.observeEffect(permit, controller.signal,
-                    {sessionId: task.sessionId, taskId: task.id, effectId: effect.id}, observe),
+                waitForObservation: <T>(observe: (signal: AbortSignal) => Promise<T>, options?: {confirmLocalStop?: boolean}) => this.observeEffect(permit, controller.signal,
+                    {sessionId: task.sessionId, taskId: task.id, effectId: effect.id}, observe, options?.confirmLocalStop),
                 sessionState: {
                     get: <T extends import('../domain/types').JsonValue>(key: string) =>
                         this.store.getShared<T>(binding, key),
@@ -1673,7 +1679,8 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
                 binding, task.id, effect.id, claim.effect.currentAttempt!.leaseToken, result,
             );
         } catch (error) {
-            if (this.disposed || this.drainingWorker && error===this.observationDrainReason) return;
+            if (this.disposed) return;
+            if (this.detachObservations && error === this.observationDrainReason) {await this.store.retireEffectLease(binding, claim); return;}
             try {
                 const failedAdapter = this.effects.resolve(effect.kind, effect.version);
                 const indeterminate = !controller.signal.aborted && failedAdapter.failureOutcome?.(error) === 'indeterminate';
@@ -1696,15 +1703,16 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
     }
 
     private async observeEffect<T>(permit: EffectWorkPermit, signal: AbortSignal,
-        identity: {sessionId: string; taskId: string; effectId: string}, observe: (signal: AbortSignal) => Promise<T>): Promise<T> {
+        identity: {sessionId: string; taskId: string; effectId: string}, observe: (signal: AbortSignal) => Promise<T>, confirmLocalStop = false): Promise<T> {
         const started = Date.now(); let outcome: 'success' | 'failure' = 'failure', errorCode: string | undefined;
         this.diagnose({operation: 'effect.observe', stage: 'yield', outcome: 'blocked', ...identity,
             operationId: effectControllerKey(identity.sessionId, identity.taskId, identity.effectId), durationMs: 0});
         const observer=new AbortController();this.drainingObservations.add(observer);
+        if (confirmLocalStop) this.managedObservations.add(observer);
         if(this.detachObservations)observer.abort(this.observationDrainReason);
-        try {const value = await permit.observe(observe, AbortSignal.any([signal,observer.signal])); outcome = 'success'; return value;}
+        try {const value = await permit.observe(observe, AbortSignal.any([signal,observer.signal]), confirmLocalStop); outcome = 'success'; return value;}
         catch (error) {errorCode = diagnosticCode(error); throw error;}
-        finally {this.drainingObservations.delete(observer);this.diagnose({operation: 'effect.observe', stage: observer.signal.aborted ? 'drained' : signal.aborted ? 'aborted' : 'resume', outcome,
+        finally {this.drainingObservations.delete(observer);this.managedObservations.delete(observer);this.diagnose({operation: 'effect.observe', stage: observer.signal.aborted ? 'drained' : signal.aborted ? 'aborted' : 'resume', outcome,
             operationId: effectControllerKey(identity.sessionId, identity.taskId, identity.effectId), ...identity,
             durationMs: Date.now() - started, ...(outcome === 'failure' ? {errorCode: signal.aborted ? 'EFFECT_OBSERVATION_ABORTED' : errorCode} : {})});}
     }

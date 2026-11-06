@@ -132,3 +132,22 @@ it('detaches an explicitly drained observation without completing or cancelling 
     expect(kernel.isDisposed).toBe(false);
     expect((await kernel.task('s0',task.id)).effects.run.status).toBe('leased');
 });
+
+it('retains local ownership until a managed observer confirms physical cleanup after abort', async () => {
+    const {kernel, sessions} = await setup(), entered = deferred(), cleanup = deferred(), stopping = deferred();
+    releases.push(async () => {cleanup.resolve();});
+    kernel.registerEffect({kind: 'observe-fixture', version: '1', async execute(_request, context) {
+        return context.waitForObservation!(async signal => {
+            entered.resolve();
+            await new Promise<void>(resolve => {signal.addEventListener('abort', () => {stopping.resolve(); resolve();}, {once: true});});
+            await cleanup.promise; signal.throwIfAborted(); return 1;
+        }, {confirmLocalStop: true});
+    }});
+    const task = await sessions[0].submit({program: program.manifest, input: 0}); await entered.promise;
+    kernel.beginObservationDrain(); await stopping.promise;
+    const report = kernel.quiesce({timeoutMs: 30});
+    expect(await report).toEqual({status: 'blocked', localIdle: false});
+    cleanup.resolve(); expect(await kernel.quiesce({timeoutMs: 1000, detachObservations: true})).toEqual({status: 'drained', localIdle: true});
+    const effect = (await kernel.task('s0', task.id)).effects.run;
+    expect(effect.status).toBe('leased'); expect(effect.currentAttempt!.leaseUntil).toBe(0);
+});

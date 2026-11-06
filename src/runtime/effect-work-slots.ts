@@ -44,13 +44,13 @@ export class EffectWorkPermit {
         this.closed = true; this.slots.cancel(this);
         if (this.held) {this.held = false; this.slots.release();}
     }
-    async observe<T>(read: (signal: AbortSignal) => Promise<T>, signal: AbortSignal): Promise<T> {
+    async observe<T>(read: (signal: AbortSignal) => Promise<T>, signal: AbortSignal, confirmLocalStop = false): Promise<T> {
         signal.throwIfAborted();
         if (this.closed) throw closedError();
         if (this.observing) throw Object.assign(new Error('Effect observation already active'), {code: 'EFFECT_OBSERVATION_ACTIVE'});
         this.observing = true; this.held = false; this.slots.release();
         let value: T | undefined, error: unknown, failed = false;
-        try {value = await observation(read, signal);}
+        try {value = await (confirmLocalStop ? Promise.resolve().then(() => {signal.throwIfAborted(); return read(signal);}) : observation(read, signal));}
         catch (cause) {error = cause; failed = true;}
         try {await this.slots.resume(this, signal);}
         finally {this.observing = false;}

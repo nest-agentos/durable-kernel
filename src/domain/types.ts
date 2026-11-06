@@ -475,7 +475,7 @@ export interface EffectExecutionContext {
     deadlineAt?: number;
     grants: AuthorizedEffectGrant[];
     /** Yield local execution capacity during read-only waiting; retain the Effect lease and cleanup responsibility. */
-    waitForObservation?<T>(observe: (signal: AbortSignal) => Promise<T>): Promise<T>;
+    waitForObservation?<T>(observe: (signal: AbortSignal) => Promise<T>, options?: {confirmLocalStop?: boolean}): Promise<T>;
     sessionState?: EffectSessionState;
     /**
      * Append an incremental event to the session event log during effect

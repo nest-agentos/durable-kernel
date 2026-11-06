@@ -1269,6 +1269,16 @@ export class SeqFileKernelStore {
         });
     }
 
+    /** Retire only this exact worker attempt after its local execution has stopped. */
+    async retireEffectLease(binding: ResolvedStorageBinding, claim: EffectClaim): Promise<void> {
+        await transaction(binding.fs, async tx => {
+            const task = await requireTaskTx(tx, binding.rootPath, claim.taskId), effect = task.effects[claim.effectId];
+            if (!effectClaimMatches(effect, claim)) return;
+            const retired = replaceEffectAttempt(effect, {...effect.currentAttempt!, leaseUntil: 0});
+            await writeTaskTx(tx, binding.rootPath, {...task, effects: {...task.effects, [claim.effectId]: retired}, version: task.version + 1, updatedAt: Date.now()});
+        });
+    }
+
     async completeEffect(
         binding: ResolvedStorageBinding,
         taskId: TaskId,

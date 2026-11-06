@@ -237,7 +237,7 @@ Task.start 的可选 deadlineAt 在 created → ready 的同一目标事务检�
 
 EffectAdapter 的必需成员是 `kind`、`version`、`execute(request, context)`；可选 `reconcile()`、`cancel()`、`recoveryPolicy`、`shouldRetry()`。context 携带 Session / Task / Effect 身份、attemptId / 单调 attemptNumber、幂等键、AbortSignal、授权、进度 emit 和可选预算 / 共享状态端口。cancel 也获得同一 attempt 身份，供适配器对外部执行者实施 fencing。
 
-`context.waitForObservation?<T>(observe: (signal: AbortSignal) => Promise<T>): Promise<T>` 用于 execute/reconcile 内的只读等待，例如已拥有的子 Task 的 `wait({signal, until: 'settled'})`。进入等待时让出当前实例的 Effect 工作额度，观察成功或失败后都先重新取得额度，再返回值或抛出原错误；恢复者优先于新派发取得释放的额度。一个 Effect 只允许一次在途观察，重叠调用报 EFFECT_OBSERVATION_ACTIVE。旧宿主可缺少此端口，需要嵌套等待的适配器应明确拒绝，不能无条件退回占用工作额度等待。
+`context.waitForObservation?<T>(observe: (signal: AbortSignal) => Promise<T>, options?: {confirmLocalStop?: boolean}): Promise<T>` 用于 execute/reconcile 内的只读等待，例如已拥有的子 Task 的 `wait({signal, until: 'settled'})`。进入等待时让出当前实例的 Effect 工作额度，观察成功或失败后都先重新取得额度，再返回值或抛出原错误；恢复者优先于新派发取得释放的额度。一个 Effect 只允许一次在途观察，重叠调用报 EFFECT_OBSERVATION_ACTIVE。旧宿主可缺少此端口，需要嵌套等待的适配器应明确拒绝，不能无条件退回占用工作额度等待。
 
 让出的是进程内工作额度，原 Effect 仍为 leased，心跳、deadline、预算、取消和 cleanupPending 的语义保持；active Effect 仍计入 waitIdle/drain，不能将让出额度当成物理停止。maxConcurrentEffects 继续限制未让出额度的 Effect 工作，显式等待的 Effect 可以超过此数量。回调只能观察已有操作，须遵守传入 signal 并释放订阅；不得在其中提交任务、发送指令或执行外部写入。Kernel 可中断等待，但不能证明任意不合作的回调已物理退出；实际收尾仍由 cancel 核对。恢复不保存 Promise 或工作额度，仍按原 journal 和 reconcile 重新观察，不重新创建原操作。
 
@@ -431,4 +431,8 @@ SessionActivity.lastActivityAt 是最后一个有 Task 归属的持久执行事�
 
 Worker lifecycle: `kernel.quiesce({timeoutMs})` stops admission, dispatch and polling, waits for local work to reach an idle boundary, and retains storage/query capability. A blocked acknowledgement retains leases and work; callers may wait again. `kernel.drain` additionally disposes the quiescent worker. Neither method pauses or cancels durable Session controls; recovery uses the existing committed Task state and identity.
 
-`quiesce({detachObservations:true})` stops local read-only `waitForObservation` waits and leaves their durable Effect leases intact for recovery. It does not cancel the target Task or publish an Effect failure. The default drain continues to wait for observations. Active work outside an observation still drains to its boundary before storage is released; noncooperative work keeps `localIdle: false`.
+`quiesce({detachObservations:true})` stops local read-only `waitForObservation` waits and retains the unresolved Effect and original identity for recovery. After local cleanup, it expires only the matching worker attempt lease so a new worker can reconcile immediately. It does not cancel the target Task or publish an Effect failure. The default drain continues to wait for observations. Active work outside an observation still drains to its boundary before storage is released; noncooperative work keeps `localIdle: false`.
+
+An adapter that owns a local execution resource uses `waitForObservation(read, {confirmLocalStop:true})`. On drain the callback receives the stop signal, but the Kernel retains local ownership until that callback confirms resource cleanup and settles. A timeout returns `blocked`; it never treats a still-running managed child as detached remote observation. The original Effect remains leased for reconciliation after restart.
+
+`kernel.beginObservationDrain()` begins irreversible local observer retirement before producers checkpoint their metadata. It aborts observations and prevents new Effect dispatch without cancelling durable Tasks; submission bookkeeping can still finish. A host then calls `quiesce` to await physical cleanup before releasing storage. It is a host lifecycle method, not a user pause or an API for stopping remote work.
