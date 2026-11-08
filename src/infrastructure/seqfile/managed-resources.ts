@@ -2,8 +2,8 @@ import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type { ManagedResource, ManagedHandle, ResourceClaim, ResourceCommand, ResourceRequestSnapshot, ResourceResult, ManagedResourceRef, ManagedGrant, ResourceCleanup, ManagedResourceAdapter, ResourceCleanupReceipt, ResourceQuery, ResourcePage, ResourceRequestInfo, ManagedAuthority, ResourceAuthority, AuthorityClaim } from '../../domain/resource-api';
 import type { ResolvedStorageBinding, ResourceRight } from '../../domain/types';
 import { assertDurableValue } from '../../application/durability';
-import { createId, decode, encode, ensureSeqFile, resourcesPath } from './seqfile-core';
-import { resourceTransaction as transaction } from './resource-transaction';
+import { createId, decode, encode, ensureSeqFile, resourcesPath, transaction as rawTransaction } from './seqfile-core';
+import { resourceTransaction as transaction, trackResourceTransaction } from './resource-transaction';
 import { appendEventTx, indexTask, isTerminal, requireSessionTx, readTaskTx, requireTaskTx, unregisterTaskWaitTx, wakeFromPendingEvents, writeTaskTx } from './store-helpers';
 
 export interface ResourceActor { sessionId?: string; taskId?: string; }
@@ -216,6 +216,12 @@ async function settleLifecycleTx(tx: ISeqFileTransaction, authority: ResolvedSto
 
 /** Called inside the same transaction as the owning Decision, or by the host facade. */
 export async function executeResourceTx(tx: ISeqFileTransaction, p: PreparedResourceCommand): Promise<ResourceRequestSnapshot> {
+    const bindings = [p.authority];
+    if (p.actorRoot && p.actor.sessionId && p.authority.runtimeRecovery) bindings.push({...p.authority,
+        rootPath: p.actorRoot, runtimeRecovery: {...p.authority.runtimeRecovery, sessionId: p.actor.sessionId}});
+    return trackResourceTransaction(tx, bindings, tracked => executeResourceCommandTx(tracked, p));
+}
+async function executeResourceCommandTx(tx: ISeqFileTransaction, p: PreparedResourceCommand): Promise<ResourceRequestSnapshot> {
     const c = p.command, path = resourcesPath(p.authority.rootPath);
     await schemaTx(tx, path, true);
     requireText(c.requestId); assertDurableValue(c, 'Resource command');
@@ -404,7 +410,7 @@ export class ManagedResourceStore {
     }
     async initialize() {
         await ensureSeqFile(this.shared.fs, resourcesPath(this.shared.rootPath));
-        await transaction(this.shared.fs, tx => schemaTx(tx, resourcesPath(this.shared.rootPath), true));
+        await transaction(this.shared, tx => schemaTx(tx, resourcesPath(this.shared.rootPath), true));
     }
     private async binding(scope: string, inspect = false) {
         if (scope === 'kernel') return this.shared;
@@ -420,12 +426,12 @@ export class ManagedResourceStore {
     }
     async execute(actor: ResourceActor, command: ResourceCommand) {
         const p = await this.prepare(actor, command);
-        return transaction(p.authority.fs, tx => executeResourceTx(tx, p));
+        return rawTransaction(p.authority.fs, tx => executeResourceTx(tx, p));
     }
     async poll(actor: ResourceActor, scope: string, id: string, cancel = false): Promise<ResourceRequestSnapshot> {
         const authority = await this.binding(scope), local = actor.sessionId ? await this.resolveSession(actor.sessionId) : undefined;
         if (local && local.fs !== authority.fs) throw new ResourceCommandError('Cross-backend resources require a broker; unsupported');
-        const snapshot = await transaction(authority.fs, async tx => {
+        const snapshot = await transaction(authority, async tx => {
             const path = resourcesPath(authority.rootPath);
             await schemaTx(tx, path, cancel);
             let row = await read<RequestRow>(tx, path, requestKey(actor, id));
@@ -443,7 +449,7 @@ export class ManagedResourceStore {
         });
         // Only accepted requests can drive external work, always outside the transaction.
         if (snapshot.status === 'pending' && !cancel) await this.sweep(scope);
-        return transaction(authority.fs, async tx => {
+        return transaction(authority, async tx => {
             const row = (await read<RequestRow>(tx, resourcesPath(authority.rootPath), requestKey(actor, id)))!;
             return { id: row.id, scope, status: row.status,
                 ...(row.result !== undefined ? { result: row.result } : {}), ...(row.error ? { error: row.error } : {}) };
@@ -451,7 +457,7 @@ export class ManagedResourceStore {
     }
     async recover(scope: string, takeover = false) {
         const binding = await this.binding(scope, true);
-        await transaction(binding.fs, async tx => {
+        await transaction(binding, async tx => {
             const path = resourcesPath(binding.rootPath);
             await schemaTx(tx, path, true);
             if (takeover) for (const operation of await rows<ResourceCleanup>(tx, path, 'cleanup')) {
@@ -463,14 +469,14 @@ export class ManagedResourceStore {
     }
     async nextDeadline(scope: string): Promise<number | undefined> {
         const b = await this.binding(scope);
-        return transaction(b.fs, async tx => {
+        return transaction(b, async tx => {
             return resourceDeadline(await rows<RequestRow>(tx, resourcesPath(b.rootPath), 'request'),
                 await rows<ResourceCleanup>(tx, resourcesPath(b.rootPath), 'cleanup'));
         });
     }
     async sweep(scope: string): Promise<number | undefined> {
         const b = await this.binding(scope);
-        const snapshot = await transaction(b.fs, async tx => {
+        const snapshot = await transaction(b, async tx => {
             const requests = await sweepResourceTx(tx, b);
             const cleanups = await rows<ResourceCleanup>(tx, resourcesPath(b.rootPath), 'cleanup');
             return { cleanups, deadline: resourceDeadline(requests, cleanups) };
@@ -491,7 +497,7 @@ export class ManagedResourceStore {
             if (snapshot.status === 'succeeded' || snapshot.nextAttemptAt > Date.now()) continue;
             const adapter = this.adapters.get(JSON.stringify([snapshot.physical.kind, snapshot.physical.version]));
             const timeout = adapter?.timeoutMs ?? 1000;
-            const pending = await transaction(binding.fs, async tx => {
+            const pending = await transaction(binding, async tx => {
                 const current = await read<ResourceCleanup>(tx, path, key('cleanup', snapshot.id));
                 if (!current || current.status === 'succeeded' || current.nextAttemptAt > Date.now()) return;
                 const next = { ...current, attempts: current.attempts + 1, nextAttemptAt: Date.now() + timeout };
@@ -530,7 +536,7 @@ export class ManagedResourceStore {
                 this.controllers.delete(controller);
             }
             if (this.disposed) return; // durable intent is reconciled by the replacement
-            await transaction(binding.fs, async tx => {
+            await transaction(binding, async tx => {
                 const current = await read<ResourceCleanup>(tx, path, key('cleanup', next.id));
                 if (!current || current.status === 'succeeded' || current.epoch !== next.epoch || current.attempts !== next.attempts) return;
                 const stopped = receipt.status === 'stopped';
@@ -549,14 +555,14 @@ export class ManagedResourceStore {
     async list(actor: ResourceActor) {
         if (!actor.sessionId) return [];
         const b = await this.resolveSession(actor.sessionId);
-        return transaction(b.fs, async tx => {
+        return transaction(b, async tx => {
             await schemaTx(tx, resourcesPath(b.rootPath));
             return (await rows<ManagedHandle>(tx, resourcesPath(b.rootPath), 'handle')).filter(h => !actor.taskId || h.taskId === actor.taskId);
         });
     }
     async stat(actor: ResourceActor, ref: ManagedResourceRef) {
         const p = await this.prepare(actor, { type: 'share', requestId: '_stat', ref, toSessionId: '_', rights: ['read'] });
-        return transaction(p.authority.fs, async tx => {
+        return transaction(p.authority, async tx => {
             await schemaTx(tx, resourcesPath(p.authority.rootPath));
             const r = await resourceTx(tx, p, ref);
             const permitted = await allowed(tx, p, r);
@@ -576,7 +582,7 @@ export class ManagedResourceStore {
         const local = actor.sessionId ? await this.resolveSession(actor.sessionId) : undefined;
         if (local && local.fs !== b.fs) throw new ResourceCommandError('Cross-backend resources require a broker; unsupported');
         const path = resourcesPath(b.rootPath);
-        return transaction(b.fs, async tx => {
+        return transaction(b, async tx => {
             await schemaTx(tx, path, true);
             return claimAuthorityTx(tx, path, authorityId, claim);
         });
@@ -586,7 +592,7 @@ export class ManagedResourceStore {
         const local = actor.sessionId ? await this.resolveSession(actor.sessionId) : undefined;
         if (local && local.fs !== b.fs) throw new ResourceCommandError('Cross-backend resources require a broker; unsupported');
         const path = resourcesPath(b.rootPath);
-        return transaction(b.fs, async tx => {
+        return transaction(b, async tx => {
             await schemaTx(tx, path);
             return read<ManagedAuthority>(tx, path, authorityKey(authorityId));
         });
@@ -616,7 +622,7 @@ export class ManagedResourceStore {
                 if (options.scope) throw new ResourceCommandError('Cross-backend resource query unsupported');
                 continue;
             }
-            await transaction(b.fs, async tx => {
+            await transaction(b, async tx => {
                 const path = resourcesPath(b.rootPath);
                 await schemaTx(tx, path);
                 const p: PreparedResourceCommand = { authority: b, actor, actorRoot: local?.rootPath, scope,
@@ -672,7 +678,7 @@ export class ManagedResourceStore {
         const actor = { sessionId }, scopes = new Set(['kernel', resourceScope(actor), ...(await this.list(actor)).map(h => h.ref.scope)]);
         for (const scope of scopes) {
             const b = await this.binding(scope);
-            if (await transaction(b.fs, async tx => (await rows<ResourceClaim>(tx, resourcesPath(b.rootPath), 'claim')).some(c => !c.released && (c.sessionId === sessionId || scope === resourceScope(actor))))) return false;
+            if (await transaction(b, async tx => (await rows<ResourceClaim>(tx, resourcesPath(b.rootPath), 'claim')).some(c => !c.released && (c.sessionId === sessionId || scope === resourceScope(actor))))) return false;
         }
         return true;
     }
@@ -683,7 +689,7 @@ export class ManagedResourceStore {
         const scopes = new Set(['kernel', resourceScope(actor), ...handles.map(handle => handle.ref.scope)]);
         for (const scope of scopes) {
             const binding = await this.binding(scope);
-            const held = await transaction(binding.fs, async tx => (await rows<ResourceClaim>(tx, resourcesPath(binding.rootPath), 'claim'))
+            const held = await transaction(binding, async tx => (await rows<ResourceClaim>(tx, resourcesPath(binding.rootPath), 'claim'))
                 .some(claim => !claim.released && claim.sessionId === sessionId && selected.has(claim.taskId)));
             if (held) return false;
         }
@@ -691,7 +697,7 @@ export class ManagedResourceStore {
     }
     async validate(actor: ResourceActor, claim: ResourceClaim): Promise<ResourceClaim> {
         const p = await this.prepare(actor, { type: 'release', requestId: '_validate', claim });
-        return transaction(p.authority.fs, async tx => {
+        return transaction(p.authority, async tx => {
             const current = await read<ResourceClaim>(tx, resourcesPath(p.authority.rootPath), key('claim', claim.id));
             if (!current || current.released || current.state === 'cleanup-pending' || current.token !== claim.token || current.ref.id !== claim.ref.id
                 || current.sessionId !== actor.sessionId || (actor.taskId && current.taskId !== actor.taskId)) throw new ResourceCommandError('Resource claim is not active for this holder');

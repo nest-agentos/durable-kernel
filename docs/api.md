@@ -70,6 +70,7 @@ interface KernelOptions {
 | `sessionActivity(id)` | `Promise<SessionActivity>`；同事务冷读 Session 生命周期、各执行阶段 Task 数量、待确认/输入/清理数量、可选 lastActivityAt 及事件水位，不启动任务 |
 | `listSessions()` | `AsyncIterable<SessionRecord>`；读取持久目录，不激活这些 Session |
 | `listSessionTasks(sessionId)` / `listShared(sessionId, prefix?)` | 完整 Kernel 的冷查询；只读已有任务/共享记录，不打开 Session、不登记资源轮询或提交订阅；执行恢复仍须显式调用恢复/打开入口 |
+| `listRuntimeRecoverySessions()` | 完整 Kernel 的冷查询；按事务责任索引去重返回需要恢复的 Session，不枚举历史 Session 或 Task。覆盖普通非终态任务/计时器、Effect 清理、outbox 交付与结算、Session 托管资源责任 |
 | `listRecoveryTasks(scope)` / `listRecoveryShared(scope)` | 完整 Kernel 的冷查询；只读指定 scope 的精确待办引用，不遍历 Session、Task 正文或历史；空索引直接返回空数组 |
 | `acknowledgeTaskRecovery(sessionId, taskId, scope)` | 对 until=acknowledged 的匹配 Task 显式确认；要求 Task 已结算，确认标志与待办删除在同一事务提交；重复确认幂等 |
 | `recover(options?)` | `Promise<RecoveryReport>`；恢复全部已登记 Session，随后处理消息投递 |
@@ -441,3 +442,7 @@ Worker lifecycle: `kernel.quiesce({timeoutMs})` stops admission, dispatch and po
 An adapter that owns a local execution resource uses `waitForObservation(read, {confirmLocalStop:true})`. On drain the callback receives the stop signal, but the Kernel retains local ownership until that callback confirms resource cleanup and settles. A timeout returns `blocked`; it never treats a still-running managed child as detached remote observation. The original Effect remains leased for reconciliation after restart.
 
 `kernel.beginObservationDrain()` begins irreversible local observer retirement before producers checkpoint their metadata. It aborts observations and prevents new Effect dispatch without cancelling durable Tasks; submission bookkeeping can still finish. A host then calls `quiesce` to await physical cleanup before releasing storage. It is a host lifecycle method, not a user pause or an API for stopping remote work.
+
+Runtime recovery responsibilities live at `catalog.seq.runtime-recovery/<session>/<kind>/<identity>` and change in the same transaction as Task, message and managed-resource records. Deferred `created` Tasks have no runtime duty until started. Terminal Tasks remain candidates while Effects need reconciliation or physical cleanup. Cross-Session outbox entries remain until settlement acknowledgement, including the delivery/acknowledgement crash gap. Resource Decisions and direct resource commands share transaction tracking; local handles and shared-authority claims both identify their owning Session. Kernel-scoped cleanup still uses the existing Kernel resource poller.
+
+Automatic indexed recovery requires Session storage and catalog to share one `IFileSystem` transaction domain. Storage binding context is reconstructed from the authoritative catalog. Other storage domains require explicit `recoverSession` by their owner. This API performs no historical backfill; existing unindexed work must be recovered explicitly. Index corruption fails closed. Archive restore rebuilds responsibilities in the destination transaction and preserves pause controls; Session deletion removes its references. Cold lookup does not acquire leases, open Sessions or resume work.

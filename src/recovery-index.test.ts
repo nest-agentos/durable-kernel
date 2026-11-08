@@ -89,6 +89,7 @@ it('removes a deleted Session from both recovery indexes without leaving danglin
     await f.kernel.closeSession('s', true); await f.kernel.removeSession('s');
     expect(await f.kernel.listRecoveryTasks('fixture.history')).toEqual([]);
     expect(await f.kernel.listRecoveryShared('fixture.admission')).toEqual([]);
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual([]);
 });
 
 it('rebinds exported responsibilities to the destination catalog and preserves paused execution', async () => {
@@ -105,6 +106,7 @@ it('rebinds exported responsibilities to the destination catalog and preserves p
     await target.archives.importSession((async function* () {yield* lines;})(),
         {mode: 'restore', requestId: 'restore', storage: {kind: 'fixture', locator: null}, assertExclusive: async () => {}});
     expect((await target.sessionStat('s')).phase).toBe('paused');
+    expect(await target.listRuntimeRecoverySessions()).toEqual(['s']);
     expect(await target.listRecoveryTasks('fixture.scheduler')).toEqual([{sessionId: 's', taskId: task.id}]);
     expect(await target.listRecoveryShared('fixture.admission')).toEqual([{sessionId: 's', key: 'intent'}]);
     await (await target.attachTask('s', task.id)).cancel();
@@ -128,4 +130,84 @@ it('reports corrupt indexes without falling back to historical enumeration', asy
     await f.fs.meta.seq!.setEntry('/catalog/catalog.seq', 'recovery/fixture.scheduler/broken', '{');
     await expect(f.kernel.listRecoveryTasks('fixture.scheduler')).rejects.toMatchObject({code: 'STORAGE_CORRUPT'});
     expect(sessions).not.toHaveBeenCalled();
+});
+
+it('tracks ordinary waiting Tasks across restart and removes their runtime duty on settlement', async () => {
+    const f = await fixture(), task = await f.session.submit({program: program.manifest, input: 'wait'});
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual(['s']);
+    f.kernel.dispose(); await f.kernel.waitIdle(); const observer = await f.make();
+    const history = vi.spyOn(observer, 'listSessions');
+    expect(await observer.listRuntimeRecoverySessions()).toEqual(['s']);
+    expect(history).not.toHaveBeenCalled();
+    await (await observer.attachTask('s', task.id)).cancel();
+    expect(await observer.listRuntimeRecoverySessions()).toEqual([]);
+});
+
+it('does not index deferred admission until started and rolls back failed runtime indexing', async () => {
+    const f = await fixture();
+    const deferred = await f.session.submit({program: program.manifest, input: 'wait', deferStart: true});
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual([]);
+    await deferred.start();
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual(['s']);
+    await deferred.cancel();
+    const write = f.backend.records.setRecordField.bind(f.backend.records);
+    const spy = vi.spyOn(f.backend.records, 'setRecordField').mockImplementation(async (path, field, value) => {
+        if (field.includes('runtime-recovery/')) throw new Error('RUNTIME_INDEX_REJECTED');
+        return write(path, field, value);
+    });
+    await expect(f.session.submit({program: program.manifest, input: 'wait'})).rejects.toMatchObject({code: 'EIO'});
+    spy.mockRestore();
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual([]);
+    expect(await f.session.listTasks()).toHaveLength(1);
+});
+
+it('retains cross-Session delivery responsibility through the settlement acknowledgement gap', async () => {
+    const f = await fixture();
+    const {SeqFileKernelStore} = await import('./index');
+    const store = new SeqFileKernelStore({fs: f.fs, rootPath: '/catalog'}, async () => ({fs: f.fs, rootPath: '/s'}));
+    const binding = await store.inspectSessionBinding('s');
+    const message = {id: 'delivery', sourceSessionId: 's', targetSessionId: 'target', topic: 'fixture', payload: null,
+        status: 'pending' as const, createdAt: Date.now()};
+    await store.createOutboxMessage(binding, message);
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual(['s']);
+    const delivered = await store.markMessageDelivered(binding, message.id);
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual(['s']);
+    await store.acknowledgeMessageSettlement(binding, delivered, 'outbox');
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual([]);
+});
+
+it('indexes Session handles for shared Kernel resources and clears closed bindings', async () => {
+    const f = await fixture(), {resourceResult} = await import('./public/resources');
+    const task = await f.session.submit({program: program.manifest, input: 'wait', deferStart: true});
+    const pool = await resourceResult(f.kernel.resources.create({requestId: 'pool', kind: 'pool', name: 'pool', capacity: 1}));
+    await resourceResult(f.kernel.resources.share(pool.ref, {requestId: 'share', toSessionId: 's', rights: ['execute']}));
+    const handle = await resourceResult(task.resources.open(pool.ref, {requestId: 'open', name: 'pool', rights: ['execute']}));
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual(['s']);
+    const claim = await resourceResult(task.resources.acquire(handle, {requestId: 'take', quantity: 1}));
+    await resourceResult(task.resources.release(claim, {requestId: 'release'}));
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual(['s']);
+    await resourceResult(task.resources.close(handle, {requestId: 'close'}));
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual([]);
+});
+
+it('keeps a paused timer discoverable without resuming it during cold index reads', async () => {
+    const f = await fixture();
+    const timer: DurableTaskProgram = {manifest: {kind: 'fixture.timer', version: '1'},
+        init: () => ({state: null, next: {type: 'wait', on: {type: 'timer', id: 'later', at: Date.now() + 60_000}}}),
+        reduce: () => ({state: null, next: {type: 'complete', output: null}})};
+    f.kernel.registerProgram(timer);
+    const task = await f.session.submit({program: timer.manifest, input: null});
+    await expect.poll(async () => (await task.snapshot()).task.wait?.type).toBe('timer');
+    await f.session.suspend();
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual(['s']);
+    expect((await f.session.stat()).phase).toBe('paused');
+    await task.cancel();
+    expect(await f.kernel.listRuntimeRecoverySessions()).toEqual([]);
+});
+
+it('rejects corrupt runtime references without scanning Session history', async () => {
+    const f = await fixture(), history = vi.spyOn(f.kernel, 'listSessions');
+    await f.fs.meta.seq!.setEntry('/catalog/catalog.seq', 'runtime-recovery/s/task/broken', 'other-session');
+    await expect(f.kernel.listRuntimeRecoverySessions()).rejects.toMatchObject({code: 'STORAGE_CORRUPT'});
+    expect(history).not.toHaveBeenCalled();
 });

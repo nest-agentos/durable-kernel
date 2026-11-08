@@ -1,3 +1,4 @@
+import {indexRuntimeMessage, RUNTIME_RECOVERY_PREFIX} from './runtime-recovery-index';
 import {taskStat} from '../../domain/status';
 import {decodeRecoveryEntry, indexSharedRecovery, recoveryPrefix, validateTaskRecovery} from './task-recovery-index';
 import {readTaskSubmissionReceiptTx} from './task-submission';
@@ -88,6 +89,20 @@ export class SeqFileKernelStore {
         private readonly catalog: ResolvedStorageBinding,
         private readonly resolveStorage: (reference: StorageBindingRef) => Promise<ResolvedStorageBinding>,
     ) {}
+
+    async listRuntimeRecoverySessions(): Promise<string[]> {
+        const rows: Array<{key: string; value: string}> = [];
+        await seq(this.catalog.fs).walkEntries(catalogPath(this.catalog.rootPath), row => {
+            rows.push({key: row.key, value: row.value}); return true;
+        }, {keyPrefix: RUNTIME_RECOVERY_PREFIX});
+        const ids = new Set<string>();
+        for (const row of rows) {
+            if (!row.value || !row.key.startsWith(RUNTIME_RECOVERY_PREFIX + encodeURIComponent(row.value) + '/'))
+                throw kernelError(KernelErrorCode.STORAGE_CORRUPT, 'Invalid runtime recovery responsibility');
+            ids.add(row.value);
+        }
+        return [...ids];
+    }
 
     async listRecoveryTasks(scope: string): Promise<Array<{sessionId: string; taskId: string; key?: string}>> {
         const rows: Array<{key: string; value: string}> = [], prefix = recoveryPrefix(scope);
@@ -210,7 +225,13 @@ export class SeqFileKernelStore {
     async inspectSessionStorage(id: SessionId): Promise<{ record: SessionRecord; binding: ResolvedStorageBinding }> {
         const record = await this.readCatalog(id);
         if (!record) throw kernelError(KernelErrorCode.SESSION_NOT_FOUND, `Session not found: ${id}`);
-        return { record, binding: await this.resolveStorage(record.storage) };
+        return { record, binding: await this.runtimeBinding(record) };
+    }
+
+    private async runtimeBinding(record: SessionRecord): Promise<ResolvedStorageBinding> {
+        const binding = await this.resolveStorage(record.storage);
+        return {...binding, runtimeRecovery: binding.fs === this.catalog.fs
+            ? {catalogPath: catalogPath(this.catalog.rootPath), sessionId: record.id} : undefined};
     }
 
     async openSession(id: SessionId, options: {
@@ -219,7 +240,7 @@ export class SeqFileKernelStore {
         const catalog = await this.readCatalog(id);
         if (!catalog) throw kernelError(KernelErrorCode.SESSION_NOT_FOUND, `Session not found: ${id}`);
         if (options.expectedStorage && encode(catalog.storage) !== encode(options.expectedStorage)) throw new Error('Session storage binding conflict');
-        const binding = await this.resolveStorage(catalog.storage);
+        const binding = await this.runtimeBinding(catalog);
         if (catalog.registrationPending) await this.createSession(id, catalog.storage);
         const record = await this.readSession(binding);
         if (record.id !== id || encode(record.storage) !== encode(catalog.storage)) throw new Error('Session storage already belongs to another session');
@@ -267,6 +288,9 @@ export class SeqFileKernelStore {
                 if (decode<{sessionId: string}>(entry.value).sessionId === id) stale.push(entry.key);
                 return true;
             }, {keyPrefix: prefix});
+            await tx.walkEntries(catalogPath(this.catalog.rootPath), row => {
+                stale.push(row.key); return true;
+            }, {keyPrefix: RUNTIME_RECOVERY_PREFIX + encodeURIComponent(id) + '/'});
             for (const key of stale) await tx.deleteEntry(catalogPath(this.catalog.rootPath), key);
         });
     }
@@ -479,6 +503,7 @@ export class SeqFileKernelStore {
         message: CrossSessionMessage<T>,
     ): Promise<void> {
         await transaction(binding.fs, async tx => {
+            await indexRuntimeMessage(tx, binding.fs === this.catalog.fs ? catalogPath(this.catalog.rootPath) : undefined, message);
             await tx.setEntry(messagesPath(binding.rootPath), outboxKey(message.id), encode(message));
             await appendEventTx(tx, binding.rootPath, message.sourceSessionId, undefined,
                 'session.message.queued', message);
@@ -516,7 +541,7 @@ export class SeqFileKernelStore {
     }
 
     async sendSessionMessage(binding: ResolvedStorageBinding, sessionId: string, request: import('../../domain/types').SessionMessageRequest) {
-        return transaction(binding.fs, tx => enqueueSessionMessageTx(tx, binding.rootPath, sessionId, request));
+        return transaction(binding.fs, tx => enqueueSessionMessageTx(tx, binding.rootPath, sessionId, request, binding.fs === this.catalog.fs ? catalogPath(this.catalog.rootPath) : undefined));
     }
 
     async inboxPage(binding: ResolvedStorageBinding, query?: import('../../domain/types').InboxQuery) {
@@ -558,6 +583,7 @@ export class SeqFileKernelStore {
                 deliveredAt: receipt?.status === 'rejected' ? undefined : receipt?.deliveredAt ?? Date.now(),
                 rejectedAt: receipt?.rejectedAt, rejection: receipt?.rejection,
                 settlementAcknowledgedAt: receipt?.settlementAcknowledgedAt, nextAttemptAt: undefined };
+            await indexRuntimeMessage(tx, binding.fs === this.catalog.fs ? catalogPath(this.catalog.rootPath) : undefined, next);
             await tx.setEntry(messagesPath(binding.rootPath), key, encode(next));
             await appendEventTx(tx, binding.rootPath, current.sourceSessionId, current.sourceTaskId,
                 `session.message.${next.status}`, next);
@@ -567,7 +593,7 @@ export class SeqFileKernelStore {
 
     async acknowledgeMessageSettlement(binding: ResolvedStorageBinding, message: CrossSessionMessage,
         side: 'inbox' | 'outbox'): Promise<CrossSessionMessage | undefined> {
-        return transaction(binding.fs, tx => acknowledgeMessageSettlementTx(tx, binding.rootPath, message, side));
+        return transaction(binding.fs, tx => acknowledgeMessageSettlementTx(tx, binding.rootPath, message, side, binding.fs === this.catalog.fs ? catalogPath(this.catalog.rootPath) : undefined));
     }
 
     async recordMessageRetry(binding: ResolvedStorageBinding, messageId: string, error: unknown): Promise<void> {

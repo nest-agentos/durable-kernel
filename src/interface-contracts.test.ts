@@ -163,6 +163,7 @@ it('does not acknowledge an interrupt when its adapter cannot confirm physical s
     await expect(task.waitStopped({ timeoutMs: 30 })).rejects.toMatchObject({ code: KernelErrorCode.WAIT_TIMEOUT });
     expect((await task.stat()).control.acknowledged).toBe(false);
     expect((await task.snapshot()).task.effects.e.cleanupPending).toBe(true);
+    expect(await kernel.listRuntimeRecoverySessions()).toEqual(['s']);
 });
 
 it('never starts a fenced attempt whose grant resolution finishes after interrupt confirmation', async () => {

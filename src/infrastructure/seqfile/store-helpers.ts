@@ -1,4 +1,5 @@
 import {indexSharedRecovery, indexTaskRecovery} from './task-recovery-index';
+import {indexRuntimeTask} from './runtime-recovery-index';
 import {declareEffectLayoutTx} from './effect-layout';
 // @file: durable-kernel/src/infrastructure/seqfile/store-helpers.ts
 import { indexTaskActivity } from './activity-index';
@@ -138,6 +139,7 @@ export async function requireTaskTx(tx: ISeqFileTransaction, root: string, taskI
 }
 
 export async function writeTaskTx(tx: ISeqFileTransaction, root: string, task: TaskRecord): Promise<void> {
+    await indexRuntimeTask(tx, task);
     await indexTaskRecovery(tx, task);
     await declareEffectLayoutTx(tx, root, task);
     await indexTaskActivity(tx, root, task);

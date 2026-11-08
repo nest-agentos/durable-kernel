@@ -1,3 +1,4 @@
+import {indexRuntimeTask, indexRuntimeMessage, indexRuntimeResources} from './runtime-recovery-index';
 import {indexSharedRecovery, indexTaskRecovery} from './task-recovery-index';
 import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import {indexTaskActivity} from './activity-index';
@@ -114,9 +115,16 @@ async function importRecordsTx(tx: ISeqFileTransaction, catalog: ResolvedStorage
         if (entry.recoveryScope) await indexSharedRecovery(tx, path, id, entry.key, entry.recoveryScope, true);
         return true;
     }, {keyPrefix: 'value/'});
+    await tx.walkEntries(join(target.rootPath, 'messages.seq'), async row => {
+        await indexRuntimeMessage(tx, path, decode(row.value)); return true;
+    }, {keyPrefix: 'outbox/'});
+    const resourceKeys = new Set<string>();
+    await tx.walkEntries(join(target.rootPath, 'resources.seq'), row => {resourceKeys.add(row.key); return true;}, {keyPrefix: 'managed/'});
+    await indexRuntimeResources(tx, {...target, runtimeRecovery: {catalogPath: path, sessionId: id}}, resourceKeys);
     for (const task of tasks) {
         const current = {...task, sessionPaused: true, recoveryIndexPath: path};
         await indexTaskRecovery(tx, current);
+        await indexRuntimeTask(tx, current);
         await tx.setEntry(taskPath(target.rootPath, current.id), 'record', encode(current));
         await indexTaskActivity(tx, target.rootPath, current);
         await indexTask(tx, target.rootPath, current); await tx.setEntry(path, `task/${current.id}`, id);

@@ -108,6 +108,7 @@ describe('simple durable resource facade', () => {
         const release = await t1.resources.release(claim, { requestId: 'release' });
         await release.poll();
         await t1.cancel();
+        expect(await kernel.listRuntimeRecoverySessions()).toContain('s1');
         kernel.dispose(); await kernel.waitIdle();
         const replacement = worker();
         replacement.registerResourceAdapter(deviceAdapter(async c => {

@@ -228,7 +228,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
             resolve: ref => this.resolveStorage(ref), hasProgram: ref => this.programs.has(ref.kind, ref.version),
             hasEffect: ref => this.effects.has(ref.kind, ref.version), assertRunning: () => this.assertRunning(),
             diagnose: event => this.diagnose(event)});
-        this.managedResources = new ManagedResourceStore(catalog, id => this.binding(id),
+        this.managedResources = new ManagedResourceStore({...catalog, runtimeRecovery: {catalogPath: catalogPath(catalog.rootPath)}}, id => this.binding(id),
             async () => (await this.store.listSessions()).map(session => session.id),
             id => this.store.inspectSessionBinding(id));
         this.resourcePoller = new DurablePoller({
@@ -461,7 +461,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
         return this.admit(async () => {
             const id = spec.id ?? createId('session');
             await this.store.createSession(id, spec.storage);
-            const binding = await this.resolveStorage(spec.storage);
+            const binding = await this.store.inspectSessionBinding(id);
             this.assertRunning();
             this.rememberBinding(id, binding);
             this.schedulePoll(id);
@@ -511,6 +511,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
     }
 
     /** Cold lookup of explicitly indexed recovery responsibilities, never historical Sessions. */
+    listRuntimeRecoverySessions() { return this.traceRecovery('list-runtime-sessions', () => this.store.listRuntimeRecoverySessions()); }
     listRecoveryTasks(scope: string) { return this.traceRecovery('list-tasks', () => this.store.listRecoveryTasks(scope)); }
     listRecoveryShared(scope: string) { return this.traceRecovery('list-shared', () => this.store.listRecoveryShared(scope)); }
 

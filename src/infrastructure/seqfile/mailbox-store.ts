@@ -1,3 +1,4 @@
+import {indexRuntimeMessage} from './runtime-recovery-index';
 import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type { CrossSessionMessage, InboxPage, InboxQuery, LeaseGuardOptions, SessionMessageRequest, TaskMessageRequest, TaskRecord } from '../../domain/types';
 import { assertDurableValue } from '../../application/durability';
@@ -7,7 +8,7 @@ import { assertSharedLeaseTx } from './shared-lease';
 import { KernelErrorCode, kernelError } from '../../domain/errors';
 
 export async function enqueueSessionMessageTx(tx: ISeqFileTransaction, root: string, sessionId: string,
-    request: SessionMessageRequest): Promise<CrossSessionMessage> {
+    request: SessionMessageRequest, recoveryPath?: string): Promise<CrossSessionMessage> {
     validateMessage(request);
     const id = `session-message:${encodeURIComponent(sessionId)}:${encodeURIComponent(request.idempotencyKey)}`;
     const path = messagesPath(root), fingerprint = canonicalMessage(request);
@@ -23,11 +24,13 @@ export async function enqueueSessionMessageTx(tx: ISeqFileTransaction, root: str
     const message: CrossSessionMessage = { id, sourceSessionId: sessionId, targetSessionId: request.targetSessionId,
         targetTaskId: request.targetTaskId, topic: request.topic, payload: request.payload, correlationId: request.correlationId,
         expiresAt: request.expiresAt, requestFingerprint: fingerprint, status: 'pending', createdAt: Date.now() };
+    await indexRuntimeMessage(tx, recoveryPath, message);
     await tx.setEntry(path, outboxKey(id), encode(message));
     await appendEventTx(tx, root, sessionId, undefined, 'session.message.queued', message);
     if (request.targetSessionId === sessionId) {
         await deliverMessageTx(tx, root, message);
         Object.assign(message, decode<CrossSessionMessage>((await tx.getEntry(path, inboxKey(id)))!));
+        await indexRuntimeMessage(tx, recoveryPath, message);
         await tx.setEntry(path, outboxKey(id), encode(message));
     }
     return message;
@@ -107,11 +110,13 @@ export async function enqueueMessageTx(tx: ISeqFileTransaction, root: string, se
         topic: request.topic, payload: request.payload, correlationId: request.correlationId,
         status: 'pending', createdAt: Date.now(), requestFingerprint: fingerprint, expiresAt: request.expiresAt,
     };
+    await indexRuntimeMessage(tx, sender.recoveryIndexPath, message);
     await tx.setEntry(messagesPath(root), outboxKey(id), encode(message));
     await appendEventTx(tx, root, sender.sessionId, sender.id, 'session.message.queued', message);
     if (message.targetSessionId === sender.sessionId) {
         await deliverMessageTx(tx, root, message);
         Object.assign(message, decode<CrossSessionMessage>((await tx.getEntry(messagesPath(root), inboxKey(message.id)))!));
+        await indexRuntimeMessage(tx, sender.recoveryIndexPath, message);
         await tx.setEntry(messagesPath(root), outboxKey(id), encode(message));
     }
     return message;
@@ -236,7 +241,7 @@ function canReclaimMessage(message: CrossSessionMessage): boolean {
 
 /** An acknowledged terminal source never delivers again, even if this receipt was already reclaimed. */
 export async function acknowledgeMessageSettlementTx(tx: ISeqFileTransaction, root: string,
-    message: CrossSessionMessage, side: 'inbox' | 'outbox'): Promise<CrossSessionMessage | undefined> {
+    message: CrossSessionMessage, side: 'inbox' | 'outbox', recoveryPath?: string): Promise<CrossSessionMessage | undefined> {
     if (message.status === 'pending') throw new Error('Cannot acknowledge an unsettled message');
     const session = await requireSessionTx(tx, root);
     if (session.id !== (side === 'inbox' ? message.targetSessionId : message.sourceSessionId)) throw new Error('Message settlement session mismatch');
@@ -252,6 +257,7 @@ export async function acknowledgeMessageSettlementTx(tx: ISeqFileTransaction, ro
     }
     if (current.settlementAcknowledgedAt !== undefined) return current;
     const next = { ...current, settlementAcknowledgedAt: Date.now(), nextAttemptAt: undefined };
+    if (side === 'outbox') await indexRuntimeMessage(tx, recoveryPath, next);
     await tx.setEntry(messagesPath(root), key, encode(next));
     await appendEventTx(tx, root, session.id, undefined, 'session.message.settlement-acknowledged', { messageId: message.id, side });
     return next;

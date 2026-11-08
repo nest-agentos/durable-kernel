@@ -23,7 +23,11 @@ export type TaskStatus = 'created' | 'blocked' | 'ready' | 'running' | 'waiting'
 
 export interface ProgramRef { kind: string; version: string; }
 export interface StorageBindingRef { kind: string; locator: JsonValue; }
-export interface ResolvedStorageBinding { fs: IFileSystem; rootPath: string; }
+export interface ResolvedStorageBinding {
+    fs: IFileSystem; rootPath: string;
+    /** Kernel-owned transaction context, reconstructed from the authoritative catalog. */
+    runtimeRecovery?: {catalogPath: string; sessionId?: string};
+}
 export interface SessionStorageResolver {
     readonly kind: string;
     resolve(reference: StorageBindingRef): Promise<ResolvedStorageBinding>;
