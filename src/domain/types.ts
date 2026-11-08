@@ -69,6 +69,7 @@ export interface SessionRecord {
 }
 
 export interface SharedStateEntry<T extends JsonValue = JsonValue> {
+    recoveryScope?: string;
     key: string;
     value: T;
     version: number;
@@ -90,6 +91,8 @@ export interface LeaseGuardOptions {
 export interface InteractionResponseOptions extends LeaseGuardOptions { requestId?: string; }
 
 export interface SharedStateWriteOptions extends LeaseGuardOptions {
+    /** Publish or finish host recovery responsibility atomically with this shared value. */
+    recovery?: {scope: string; pending: boolean};
     expectedVersion?: number | null;
     taskId?: TaskId;
 }
@@ -219,6 +222,8 @@ export interface TaskDependency {
 }
 
 export interface TaskSpec<I = unknown> {
+    /** Durable host recovery responsibility; shares the Task admission transaction. */
+    recovery?: {scope: string; key?: string; until: 'terminal' | 'acknowledged'};
     /** Provenance for a fresh manual retry; the source Task must be terminal. */
     retryOfTaskId?: TaskId;
     /** Session-scoped durable submission key. Reusing it with another spec is rejected. */
@@ -298,6 +303,10 @@ export interface EffectAttempt {
 }
 
 export interface TaskRecord<S = unknown> {
+    recovery?: TaskSpec['recovery'];
+    /** Kernel-owned logical index path, available only within the catalog transaction domain. */
+    recoveryIndexPath?: string;
+    recoveryAcknowledged?: boolean;
     ownedBy?: import('./task-call').TaskCallOwner;
     retryOfTaskId?: TaskId;
     id: TaskId;

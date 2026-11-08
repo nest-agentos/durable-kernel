@@ -510,6 +510,27 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
         for (const session of await this.store.listSessions()) yield session;
     }
 
+    /** Cold lookup of explicitly indexed recovery responsibilities, never historical Sessions. */
+    listRecoveryTasks(scope: string) { return this.traceRecovery('list-tasks', () => this.store.listRecoveryTasks(scope)); }
+    listRecoveryShared(scope: string) { return this.traceRecovery('list-shared', () => this.store.listRecoveryShared(scope)); }
+
+    async acknowledgeTaskRecovery(sessionId: string, taskId: string, scope: string): Promise<void> {
+        await this.traceRecovery('acknowledge-task', async () =>
+            this.store.acknowledgeTaskRecovery(await this.store.inspectSessionBinding(sessionId), taskId, scope));
+    }
+
+    private async traceRecovery<T>(stage: string, run: () => Promise<T>): Promise<T> {
+        const started = Date.now(), operationId = createId('recovery');
+        try {
+            const result = await run();
+            this.diagnose({operation: 'recovery.index', operationId, stage, outcome: 'success', durationMs: Date.now() - started});
+            return result;
+        } catch (error) {
+            this.diagnose({operation: 'recovery.index', operationId, stage, outcome: 'failure', errorCode: diagnosticCode(error), durationMs: Date.now() - started});
+            throw error;
+        }
+    }
+
     /** Inspect persisted records without registering listeners or starting execution. */
     async sessionActivity(id: SessionId) {
         const started = Date.now(), operationId = createId('activity');
@@ -560,7 +581,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
     }
 
     async listSessionTasks(sessionId: SessionId): Promise<TaskRecord[]> {
-        return this.store.listTasks(await this.binding(sessionId));
+        return this.store.listTasks(this.sessions.get(sessionId) ?? await this.store.inspectSessionBinding(sessionId));
     }
 
     /** Read pending interactions without enumerating completed Task directories. */
@@ -951,7 +972,7 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
     }
 
     async listShared(sessionId: string, prefix?: string): Promise<SharedStateEntry[]> {
-        return this.store.listShared(await this.binding(sessionId), prefix);
+        return this.store.listShared(this.sessions.get(sessionId) ?? await this.store.inspectSessionBinding(sessionId), prefix);
     }
 
     async sharedHistory<T extends import('../domain/types').JsonValue>(

@@ -52,6 +52,34 @@ it('reconstructs paused pending questions on a cold observer without opening or 
     } finally {reduce.mockRestore();}
 });
 
+it('scans Tasks and shared records without opening historical Sessions or subscribing their resources', async () => {
+    const {kernel, session, make, fs, question} = await setup(), task = await question('input');
+    await session.setShared('recovery.fixture', {ready: true});
+    kernel.dispose(); await kernel.waitIdle(); const observer = await make();
+    const open = vi.spyOn(SeqFileKernelStore.prototype, 'openSession'), changed = vi.fn();
+    const release = observer.onChanged(changed);
+    try {
+        expect((await observer.listSessionTasks('s')).map(row => row.id)).toContain(task.id);
+        expect(await observer.listShared('s', 'recovery.')).toMatchObject([{key: 'recovery.fixture', value: {ready: true}}]);
+        expect(open).not.toHaveBeenCalled();
+        const store = new SeqFileKernelStore({fs, rootPath: '/catalog'}, async () => ({fs, rootPath: '/s'}));
+        await store.appendEvent({fs, rootPath: '/s'}, 's', undefined, 'fixture.observed');
+        expect(changed).not.toHaveBeenCalled();
+        await expect(observer.listShared('missing')).rejects.toMatchObject({code: 'SESSION_NOT_FOUND'});
+        expect(open).not.toHaveBeenCalled();
+    } finally {release(); open.mockRestore();}
+});
+
+it('reuses already registered bindings without adding catalog reads to hot queries', async () => {
+    const {kernel} = await setup(); await kernel.waitIdle();
+    const inspect = vi.spyOn(SeqFileKernelStore.prototype, 'inspectSessionBinding');
+    try {
+        expect(await kernel.listSessionTasks('s')).toEqual([]);
+        expect(await kernel.listShared('s')).toEqual([]);
+        expect(inspect).not.toHaveBeenCalled();
+    } finally {inspect.mockRestore();}
+});
+
 it('reads compact projections without Task bodies and batches missing legacy bodies without writing', async () => {
     const {backend, fs, kernel, question} = await setup(), active = await question('input'), done = await question('approval'); await done.cancel();
     await kernel.waitIdle();

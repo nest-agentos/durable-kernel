@@ -41,7 +41,7 @@ function validEnvelope(request: TaskCallRequest): boolean {
 }
 function validTask(task: TaskCallPlan['task']): boolean {
     return !!task && typeof task === 'object' && !Array.isArray(task) && text(task.program?.kind) && text(task.program?.version)
-        && Object.keys(task).every(key => ['program', 'input', 'dependsOn', 'retry', 'priority', 'labels', 'retryOfTaskId'].includes(key));
+        && Object.keys(task).every(key => ['program', 'input', 'dependsOn', 'retry', 'priority', 'labels', 'retryOfTaskId', 'recovery'].includes(key));
 }
 function validBindings(bindings: TaskCallPlan['bindings']): boolean {
     if (bindings === undefined) return true;

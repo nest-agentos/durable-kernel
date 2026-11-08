@@ -69,6 +69,9 @@ interface KernelOptions {
 | `inspectSession(id)` | `Promise<SessionReader>`；只暴露 id、snapshot、readEvents、listTaskPage 的冷读取端口 |
 | `sessionActivity(id)` | `Promise<SessionActivity>`；同事务冷读 Session 生命周期、各执行阶段 Task 数量、待确认/输入/清理数量、可选 lastActivityAt 及事件水位，不启动任务 |
 | `listSessions()` | `AsyncIterable<SessionRecord>`；读取持久目录，不激活这些 Session |
+| `listSessionTasks(sessionId)` / `listShared(sessionId, prefix?)` | 完整 Kernel 的冷查询；只读已有任务/共享记录，不打开 Session、不登记资源轮询或提交订阅；执行恢复仍须显式调用恢复/打开入口 |
+| `listRecoveryTasks(scope)` / `listRecoveryShared(scope)` | 完整 Kernel 的冷查询；只读指定 scope 的精确待办引用，不遍历 Session、Task 正文或历史；空索引直接返回空数组 |
+| `acknowledgeTaskRecovery(sessionId, taskId, scope)` | 对 until=acknowledged 的匹配 Task 显式确认；要求 Task 已结算，确认标志与待办删除在同一事务提交；重复确认幂等 |
 | `recover(options?)` | `Promise<RecoveryReport>`；恢复全部已登记 Session，随后处理消息投递 |
 | `recoverSession(id, options?)` | `Promise<RecoveryReport>`；恢复并激活指定 Session |
 | `recoverSessions(ids, options?)` | `Promise<RecoveryReport>`；去重并先恢复所选集合，再登记 worker；不是跨 Session 原子事务 |
@@ -82,6 +85,8 @@ interface KernelOptions {
 | `waitIdle(timeoutMs?)` | `Promise<void>`；默认 `5000ms`，本地登记的执行未排空则抛 `IDLE_TIMEOUT` |
 
 `RecoveryOptions.takeover: true` 只适用于宿主已取得写入所有权并停止旧执行者的情况。普通恢复等待未过期租约，保留暂停意图；重启后必须注册原有精确版本。`RecoveryReport` 的计数不代表所有外部副作用已确定，须另查 `recoveryIssues()`。
+
+TaskSpec 可声明 `recovery: {scope, key?, until: 'terminal' | 'acknowledged'}`。任务接纳与 catalog 待办写入共用一个事务；terminal 模式在终态转换时移除，acknowledged 模式等宿主核验其后续持久结果后确认。`SharedStateWriteOptions.recovery: {scope, pending}` 同事务登记/结束 shared 记录的接纳责任，普通覆盖保留已有责任，删除同步清除。索引只存身份引用，不存业务输入，也不授予执行权限。索引操作要求 Session 与 catalog 在同一 IFileSystem 事务域，跨域明确拒绝；归档导入重绑定目标索引路径，Session 删除移除其待办。没有旧数据扫描、回填或损坏回退；新增恢复索引不是历史事实的替代品。
 
 ```ts
 interface ShutdownReport {

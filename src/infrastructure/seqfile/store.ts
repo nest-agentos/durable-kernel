@@ -1,3 +1,5 @@
+import {taskStat} from '../../domain/status';
+import {decodeRecoveryEntry, indexSharedRecovery, recoveryPrefix, validateTaskRecovery} from './task-recovery-index';
 import {readTaskSubmissionReceiptTx} from './task-submission';
 import {cancelRemainingTaskTreeTx, readTreeCancellationReceiptTx, validateTreeCancellation} from './task-tree-cancellation';
 import {finishTaskWithoutClaimTx} from './task-terminalization';
@@ -86,6 +88,44 @@ export class SeqFileKernelStore {
         private readonly catalog: ResolvedStorageBinding,
         private readonly resolveStorage: (reference: StorageBindingRef) => Promise<ResolvedStorageBinding>,
     ) {}
+
+    async listRecoveryTasks(scope: string): Promise<Array<{sessionId: string; taskId: string; key?: string}>> {
+        const rows: Array<{key: string; value: string}> = [], prefix = recoveryPrefix(scope);
+        await seq(this.catalog.fs).walkEntries(catalogPath(this.catalog.rootPath), row => {
+            rows.push({key: row.key, value: row.value}); return true;
+        }, {keyPrefix: prefix});
+        return rows.map(entry => {
+            const value = decodeRecoveryEntry<{sessionId: string; taskId: string; key?: string}>(entry.value);
+            if (typeof value?.sessionId !== 'string' || !value.sessionId || typeof value.taskId !== 'string' || !value.taskId
+                || value.key !== undefined && typeof value.key !== 'string' || entry.key !== prefix + value.taskId)
+                throw kernelError(KernelErrorCode.STORAGE_CORRUPT, 'Invalid recovery index entry');
+            return value;
+        });
+    }
+
+    async listRecoveryShared(scope: string): Promise<Array<{sessionId: string; key: string}>> {
+        const rows: Array<{key: string; value: string}> = [], prefix = 'shared-' + recoveryPrefix(scope);
+        await seq(this.catalog.fs).walkEntries(catalogPath(this.catalog.rootPath), row => {
+            rows.push({key: row.key, value: row.value}); return true;
+        }, {keyPrefix: prefix});
+        return rows.map(entry => {
+            const value = decodeRecoveryEntry<{sessionId: string; key: string}>(entry.value);
+            if (typeof value?.sessionId !== 'string' || !value.sessionId || typeof value.key !== 'string' || !value.key
+                || entry.key !== prefix + encodeURIComponent(value.sessionId) + '/' + encodeURIComponent(value.key))
+                throw kernelError(KernelErrorCode.STORAGE_CORRUPT, 'Invalid shared recovery index entry');
+            return value;
+        });
+    }
+
+    async acknowledgeTaskRecovery(binding: ResolvedStorageBinding, taskId: string, scope: string): Promise<void> {
+        await transaction(binding.fs, async tx => {
+            const task = await requireTaskTx(tx, binding.rootPath, taskId);
+            if (task.recovery?.scope !== scope || task.recovery.until !== 'acknowledged' || !taskStat(task).settled)
+                throw kernelError(KernelErrorCode.CONFLICT, 'Recovery acknowledgement requires a terminal matching Task');
+            if (task.recoveryAcknowledged) return;
+            await writeTaskTx(tx, binding.rootPath, {...task, recoveryAcknowledged: true, version: task.version + 1});
+        });
+    }
 
     async createCache(binding: ResolvedStorageBinding, taskId: string, spec: import('../../domain/cache').CacheSpec) {
         return transaction(binding.fs, tx => createCacheTx(tx, binding.rootPath, taskId, spec));
@@ -223,6 +263,10 @@ export class SeqFileKernelStore {
                 if (entry.value === id) stale.push(entry.key);
                 return true;
             }, { keyPrefix: 'task/' });
+            for (const prefix of ['recovery/', 'shared-recovery/']) await tx.walkEntries(catalogPath(this.catalog.rootPath), entry => {
+                if (decode<{sessionId: string}>(entry.value).sessionId === id) stale.push(entry.key);
+                return true;
+            }, {keyPrefix: prefix});
             for (const key of stale) await tx.deleteEntry(catalogPath(this.catalog.rootPath), key);
         });
     }
@@ -357,6 +401,16 @@ export class SeqFileKernelStore {
             assertSharedVersion(key, current?.version, options.expectedVersion);
             const version = await nextSharedVersion(tx, binding.rootPath, key);
             const entry = sharedEntry(key, value, version, options.taskId);
+            const recovery = options.recovery ?? (current?.recoveryScope ? {scope: current.recoveryScope, pending: true} : undefined);
+            if (recovery) {
+                if (binding.fs !== this.catalog.fs || typeof recovery.pending !== 'boolean')
+                    throw kernelError(KernelErrorCode.INVALID_SPEC, 'Recovery requires the catalog transaction domain');
+                if (current?.recoveryScope && current.recoveryScope !== recovery.scope)
+                    throw kernelError(KernelErrorCode.CONFLICT, 'Shared recovery scope cannot change');
+                if (recovery.pending) entry.recoveryScope = recovery.scope;
+                const session = await requireSessionTx(tx, binding.rootPath);
+                await indexSharedRecovery(tx, catalogPath(this.catalog.rootPath), session.id, key, recovery.scope, recovery.pending);
+            }
             await writeSharedRevision(tx, binding.rootPath, entry);
             await appendEventTx(tx, binding.rootPath, (await requireSessionTx(tx, binding.rootPath)).id,
                 options.taskId, 'session.shared.set', { key, version: entry.version });
@@ -382,6 +436,8 @@ export class SeqFileKernelStore {
             const current = await readSharedTx(tx, binding.rootPath, key);
             assertSharedVersion(key, current?.version, options.expectedVersion);
             if (!current) return false;
+            if (current.recoveryScope) await indexSharedRecovery(tx, catalogPath(this.catalog.rootPath),
+                (await requireSessionTx(tx, binding.rootPath)).id, key, current.recoveryScope, false);
             const revision = deletedRevision(key, current.version + 1, options.taskId);
             await tx.deleteEntry(sharedPath(binding.rootPath), sharedKey(key));
             await writeSharedHistory(tx, binding.rootPath, revision);
@@ -812,11 +868,14 @@ export class SeqFileKernelStore {
 
     async createTask(binding: ResolvedStorageBinding, sessionId: SessionId, spec: TaskSpec, options?: import('../../domain/types').LeaseGuardOptions,
         owned?: {taskId: string; instanceId: string; owner: import('../../domain/task-call').TaskCallOwner}): Promise<TaskRecord> {
+        validateTaskRecovery(spec.recovery);
+        if (spec.recovery && binding.fs !== this.catalog.fs) throw kernelError(KernelErrorCode.INVALID_SPEC, 'Recovery requires the catalog transaction domain');
         if (spec.input !== undefined) assertDurableValue(spec.input, 'Task input');
         const id = owned?.taskId ?? createId('task');
         await ensureTaskLayout(binding, id);
         const now = Date.now();
         let task = taskFromSpec(id, sessionId, spec, now);
+        if (binding.fs === this.catalog.fs) task.recoveryIndexPath = catalogPath(this.catalog.rootPath);
         if (owned) task.ownedBy = owned.owner;
         await transaction(binding.fs, async tx => {
             await assertSharedLeaseTx(tx, binding.rootPath, options?.lease);

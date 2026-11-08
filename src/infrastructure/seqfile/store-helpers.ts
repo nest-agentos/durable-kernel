@@ -1,3 +1,4 @@
+import {indexSharedRecovery, indexTaskRecovery} from './task-recovery-index';
 import {declareEffectLayoutTx} from './effect-layout';
 // @file: durable-kernel/src/infrastructure/seqfile/store-helpers.ts
 import { indexTaskActivity } from './activity-index';
@@ -137,6 +138,7 @@ export async function requireTaskTx(tx: ISeqFileTransaction, root: string, taskI
 }
 
 export async function writeTaskTx(tx: ISeqFileTransaction, root: string, task: TaskRecord): Promise<void> {
+    await indexTaskRecovery(tx, task);
     await declareEffectLayoutTx(tx, root, task);
     await indexTaskActivity(tx, root, task);
     const value = encode(task);
@@ -233,7 +235,7 @@ export async function createSpawnTaskTx(
 ): Promise<TaskRecord> {
     await validateRetrySourceTx(tx, root, spec.retryOfTaskId);
     let task = taskFromSpec(id, parent.sessionId, spec, Date.now());
-    task = { ...task, rootTaskId: parent.rootTaskId };
+    task = { ...task, rootTaskId: parent.rootTaskId, recoveryIndexPath: parent.recoveryIndexPath };
     task = await resolveInitialDependencies(tx, root, task, spec.dependsOn ?? []);
     await writeTaskTx(tx, root, task);
     await writeDependencyEdges(tx, root, task.id, spec.dependsOn ?? []);
@@ -286,7 +288,7 @@ export function taskFromSpec(id: string, sessionId: string, spec: TaskSpec, now:
     if (new Set(dependencies.map(dep => dep.task)).size !== dependencies.length) throw new Error('Duplicate task dependency');
     return {
         id, sessionId, retryOfTaskId: spec.retryOfTaskId, parentTaskId: spec.parent, rootTaskId: spec.parent ?? id,
-        spawnKey: spec.spawnKey, program: spec.program,
+        spawnKey: spec.spawnKey, program: spec.program, ...(spec.recovery ? {recovery: structuredClone(spec.recovery)} : {}),
         status: spec.deferStart ? 'created' : spec.dependsOn?.length ? 'blocked' : 'ready',
         input: spec.input, pendingEvents: [], dependencies, unresolvedDeps: spec.dependsOn?.length ?? 0,
         priority: spec.priority ?? 0, retry, attemptCount: 0, stepNumber: 0, stepAttemptCount: 0, stateRevision: 0, initialized: false,
@@ -615,6 +617,10 @@ export async function applySharedMutations(
         assertSharedVersion(mutation.key, current?.version, mutation.expectedVersion);
         if (mutation.type === 'delete') {
             if (current) {
+                if (current.recoveryScope) {
+                    if (!task.recoveryIndexPath) throw kernelError(KernelErrorCode.INVALID_SPEC, 'Recovery transaction domain missing');
+                    await indexSharedRecovery(tx, task.recoveryIndexPath, task.sessionId, mutation.key, current.recoveryScope, false);
+                }
                 await tx.deleteEntry(sharedPath(root), sharedKey(mutation.key));
                 await writeSharedHistory(tx, root, deletedRevision(mutation.key, current.version + 1, task.id));
                 await appendEventTx(tx, root, task.sessionId, task.id,
@@ -624,6 +630,7 @@ export async function applySharedMutations(
         }
         const version = await nextSharedVersion(tx, root, mutation.key);
         const entry = sharedEntry(mutation.key, mutation.value, version, task.id);
+        if (current?.recoveryScope) entry.recoveryScope = current.recoveryScope;
         await writeSharedRevision(tx, root, entry);
         await appendEventTx(tx, root, task.sessionId, task.id,
             'session.shared.set', { key: mutation.key, version });

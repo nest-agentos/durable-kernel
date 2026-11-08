@@ -1,3 +1,4 @@
+import {indexSharedRecovery, indexTaskRecovery} from './task-recovery-index';
 import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import {indexTaskActivity} from './activity-index';
 import type { ArchiveExportOptions, ArchiveImportOptions, ArchiveImportReport, ArchiveManifest, ArchiveRecord, ParsedArchive } from '../../domain/archive';
@@ -6,7 +7,7 @@ import { KernelErrorCode, kernelError } from '../../domain/errors';
 import { canonical } from '../../application/canonical';
 import { ArchiveHash } from '../../application/archive-hash';
 import { archiveDefaults } from '../../application/archive-codec';
-import { appendEventTx, catalogPath, createId, decode, encode, ensureSessionLayout, ensureTaskLayout, eventsPath, graphPath, indexPath, join, sessionPath, sessionSeqFiles, taskPath, transaction } from './seqfile-core';
+import { appendEventTx, catalogPath, createId, decode, encode, ensureSessionLayout, ensureTaskLayout, eventsPath, graphPath, indexPath, join, sessionPath, sessionSeqFiles, sharedPath, taskPath, transaction } from './seqfile-core';
 import { indexTask, requireSessionTx, taskFromSpec } from './store-helpers';
 
 export function assertQuiescent(session: SessionRecord, tasks: TaskRecord[]): void {
@@ -108,8 +109,14 @@ async function importRecordsTx(tx: ISeqFileTransaction, catalog: ResolvedStorage
     await tx.setEntry(sessionPath(target.rootPath), 'record', encode(session));
     await tx.setEntry(path, `session/${id}`, encode(session));
     if (fresh) await appendEventTx(tx, target.rootPath, id, undefined, 'session.created', session);
+    await tx.walkEntries(sharedPath(target.rootPath), async row => {
+        const entry = decode<import('../../domain/types').SharedStateEntry>(row.value);
+        if (entry.recoveryScope) await indexSharedRecovery(tx, path, id, entry.key, entry.recoveryScope, true);
+        return true;
+    }, {keyPrefix: 'value/'});
     for (const task of tasks) {
-        const current = {...task, sessionPaused: true};
+        const current = {...task, sessionPaused: true, recoveryIndexPath: path};
+        await indexTaskRecovery(tx, current);
         await tx.setEntry(taskPath(target.rootPath, current.id), 'record', encode(current));
         await indexTaskActivity(tx, target.rootPath, current);
         await indexTask(tx, target.rootPath, current); await tx.setEntry(path, `task/${current.id}`, id);
