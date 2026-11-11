@@ -38,3 +38,13 @@ export function closedSessionStat(sessionId: string) {
 export type TaskStat = ReturnType<typeof taskStat>;
 export type TaskStats = ReturnType<typeof taskStats>;
 export type SessionStat = ReturnType<typeof sessionStat>;
+
+/** A read-only execution projection; indeterminate effects never become terminal by inference. */
+export function taskExecutionStat(task:TaskRecord,tasks:readonly TaskRecord[]) {
+    const tree=tasks.filter(row=>row.sessionId===task.sessionId&&row.rootTaskId===task.rootTaskId);
+    const uncertain=tree.flatMap(row=>Object.values(row.effects)).find(effect=>effect.status==='indeterminate');
+    const code=uncertain?.error?.code;
+    return {settled:tree.some(row=>row.id===task.id)&&tree.every(row=>taskStat(row).settled),
+        indeterminate:!!uncertain,code:typeof code==='string'&&/^[A-Z][A-Z0-9_]{0,79}$/.test(code)?code:undefined};
+}
+export type TaskExecutionStat=ReturnType<typeof taskExecutionStat>;

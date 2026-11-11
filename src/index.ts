@@ -6,10 +6,10 @@ export { parseEventEnvelope, parseKernelEvent } from './public/events';
 export * from './domain/resource-api';
 export type { CacheApi } from './domain/cache';
 export type { KernelInspectionPort } from './ports/kernel-view';
-export type { TaskStat, TaskStats, SessionStat } from './domain/status';
+export type { TaskStat, TaskStats, SessionStat, TaskExecutionStat } from './domain/status';
 // Observation projections are public so hosts can render "requested vs confirmed" without
 // re-deriving control state; see doc/kernel-api.md (domain/status.ts).
-export { taskStat, taskStats, sessionStat } from './domain/status';
+export { taskStat, taskStats, sessionStat, taskExecutionStat } from './domain/status';
 export { createHarness, type Harness, type Session, type Task, type SessionReader } from './core';
 export { resourceResult } from './public/resources';
 export { defineTask, type TaskStepEvent } from './public/program';
