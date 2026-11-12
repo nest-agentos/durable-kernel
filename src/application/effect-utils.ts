@@ -58,14 +58,15 @@ export async function executeEffectAdapter(
     context: EffectExecutionContext,
 ): Promise<EffectCompletion> {
     if (context.abortSignal.aborted) throw abortError(context.abortSignal.reason);
-    const wasRecovered = claim.effect.attempts.some(attempt => attempt.outcome === 'lost');
+    const indeterminate=claim.effect.attempts.some(attempt=>attempt.outcome==='indeterminate');
+    const wasRecovered = indeterminate||claim.effect.attempts.some(attempt => attempt.outcome === 'lost');
     if (wasRecovered && !claim.effect.replayAuthorized && adapter.reconcile) {
         const reconciled = await adapter.reconcile(effect.request, context);
         if (reconciled.status === 'completed') return { result: reconciled.result };
         if (reconciled.status === 'indeterminate') {
             return { error: reconciled.error, indeterminate: true };
         }
-    } else if (wasRecovered && !claim.effect.replayAuthorized && adapter.recoveryPolicy !== 'idempotent-retry') {
+    } else if (wasRecovered && !claim.effect.replayAuthorized && (indeterminate||adapter.recoveryPolicy !== 'idempotent-retry')) {
         return { error: { message: 'Effect outcome is unknown; reconciliation is required' }, indeterminate: true };
     }
     if (context.abortSignal.aborted) throw abortError(context.abortSignal.reason);

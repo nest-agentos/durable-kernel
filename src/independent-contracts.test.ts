@@ -313,3 +313,23 @@ const liveOutcomeProgram: import('./index').DurableTaskProgram<null, null, unkno
         : event.type === 'effect-failed' ? { state: null, next: { type: 'fail', error: event.error } }
         : { state: null, next: { type: 'wait', on: { type: 'effect', id: 'call' } } },
 };
+
+it.each([true,false])('reconciles an indeterminate original effect without granting replay (adapter=%s)',async supported=>{
+ const {kernel,session}=await setup();let reads=0;
+ const execute=vi.fn(async()=>{throw Object.assign(new Error('observation unavailable'),{code:'EIO'});});
+ kernel.registerEffect({kind:'original-operation',version:'1',recoveryPolicy:'idempotent-retry',failureOutcome:()=> 'indeterminate',execute,
+  ...(supported?{reconcile:async()=>++reads===1?{status:'indeterminate' as const,error:{code:'EIO',message:'still unavailable'}}:{status:'completed' as const,result:'original-result'}}:{})});
+ kernel.registerProgram({manifest:{kind:'observe-original',version:'1'},init:()=>({state:null,actions:[{type:'effect',effect:{id:'original',kind:'original-operation',version:'1',request:null,idempotencyKey:'original',timeoutMs:null}}],next:{type:'wait',on:{type:'effect',id:'original'}}}),
+  reduce:(_state,event)=>event.type==='effect-completed'?{state:null,next:{type:'complete',output:event.result}}:{state:null,next:{type:'wait',on:{type:'effect',id:'original'}}}});
+ const s=await session('reconcile-'+supported),task=await s.spawn({program:{kind:'observe-original',version:'1'},input:null});
+ await expect.poll(async()=>(await task.status()).task.effects.original?.status).toBe('indeterminate');
+ const request={requestId:'observe-original-1',effectId:'original',outcome:{type:'reconcile' as const}};
+ await task.resolveEffect(request);await task.resolveEffect(request);
+ await expect.poll(async()=>(await task.status()).task.effects.original?.attemptCount).toBe(2);
+ await expect.poll(async()=>(await task.status()).task.effects.original?.status).toBe('indeterminate');
+ expect(execute).toHaveBeenCalledOnce();expect((await task.status()).task.effects.original.replayAuthorized).toBe(false);
+ if(supported){
+  await task.resolveEffect({...request,requestId:'observe-original-2'});
+  expect((await task.wait({timeoutMs:2000})).output).toBe('original-result');expect(reads).toBe(2);expect(execute).toHaveBeenCalledOnce();
+ }
+});

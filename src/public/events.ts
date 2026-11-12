@@ -37,7 +37,7 @@ const validators: Record<string, (p: Row) => boolean> = {
     'effect.indeterminate': p => error(p.error),
     'effect.retry.scheduled': p => text(p.effectId) && number(p.readyAt) && number(p.attempt) && number(p.maxAttempts) && error(p.error),
     'effect.resolved': p => text(p.requestId) && text(p.effectId) && row(p.outcome)
-        && (p.outcome.type === 'retry' || (p.outcome.type === 'completed' && 'result' in p.outcome) || (p.outcome.type === 'failed' && error(p.outcome.error))),
+        && (p.outcome.type === 'retry' || p.outcome.type === 'reconcile' || (p.outcome.type === 'completed' && 'result' in p.outcome) || (p.outcome.type === 'failed' && error(p.outcome.error))),
     'message.consumed': p => text(p.messageId),
     'session.message.settlement-acknowledged': p => text(p.messageId) && ['inbox', 'outbox'].includes(String(p.side)),
 };

@@ -1426,6 +1426,7 @@ describe('durable harness protocols', () => {
         { type: 'completed' as const, result: 'verified' },
         { type: 'failed' as const, error: { message: 'abandoned' } },
         { type: 'retry' as const },
+        { type: 'reconcile' as const },
     ].flatMap(outcome => [false, true].map(saved => ({ outcome, saved }))))(
     'fences new effect resolutions after ancestor cancellation and replays saved receipts: %j', async ({ outcome, saved }) => {
         const parent = await store.createTask(binding, 's', { ...spec, deferStart: true });

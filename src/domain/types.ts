@@ -293,7 +293,7 @@ export interface PersistedEffect {
 export interface EffectResolution {
     requestId: string;
     effectId: string;
-    outcome: { type: 'completed'; result: JsonValue } | { type: 'retry' } | { type: 'failed'; error: SerializableError };
+    outcome: { type: 'completed'; result: JsonValue } | { type: 'retry' } | { type: 'reconcile' } | { type: 'failed'; error: SerializableError };
 }
 
 export interface EffectAttempt {

@@ -249,7 +249,7 @@ EffectAdapter 的必需成员是 `kind`、`version`、`execute(request, context)
 
 返回后不额外授予执行或续接权限；新的副作用仍须使用 setIfRunning 及原宿主授权。该端口不提供跨 Session 事务、控制传播或业务调用所有权；取消清理上下文不提供工作额度等待端口。诊断使用 effect.observe 的 yield/resume/aborted 阶段，保留安全错误码、耗时及原执行身份，不输出观察正文。
 
-恢复核对返回 `completed(result)`、`retry` 或 `indeterminate(error)`。未知结果需通过 `resolveEffect({requestId, effectId, outcome})` 裁决；outcome 为 `completed`、`failed` 或 `retry`。外部系统必须对相同逻辑操作的幂等键核对；库不能承诺任意副作用 exactly-once。
+恢复核对返回 `completed(result)`、`retry` 或 `indeterminate(error)`。未知结果需通过 `resolveEffect({requestId, effectId, outcome})` 裁决；outcome 为 `completed`、`failed`、`retry` 或 `reconcile`。`reconcile` 只重新核对原 Effect，不设置 replayAuthorized；缺少 reconcile 适配器时保留 indeterminate，即使声明了 idempotent-retry 也不执行原操作。只有适配器核对得到正式未启动证据并返回 retry 时才可继续原操作。已过执行 deadline 仍可只读核对终态，不能因此重新发起已超时的操作。外部系统必须对相同逻辑操作的幂等键核对；库不能承诺任意副作用 exactly-once。
 
 `cancel()` 仅在指定 attempt 已停止、旧执行者不能再启动该 attempt 时返回成功，并须支持重复调用。外部服务需利用 attempt 身份和单调编号拒绝迟到启动；内核的事务 fencing 不能代替外部系统的执行屏障。超时保存 `cleanupPending`，未确认前不能报告暂停已完成。同步死循环需宿主 Worker / 进程隔离；恢复从最后持久提交继续，不恢复任意 JavaScript 调用栈。
 

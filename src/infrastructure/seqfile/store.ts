@@ -1433,9 +1433,9 @@ export class SeqFileKernelStore {
             const effect = task.effects[request.effectId];
             if (effect?.status !== 'indeterminate') throw kernelError(KernelErrorCode.CONFLICT, 'Effect is not indeterminate');
             const next: TaskRecord = { ...task, effects: { ...task.effects }, pendingEvents: task.pendingEvents.filter(event => !(event.type === 'effect-failed' && event.effectId === request.effectId)), version: task.version + 1, updatedAt: Date.now() };
-            if (request.outcome.type === 'retry') {
-                if ((effect.deadlineAt ?? Infinity) <= Date.now()) throw new Error('Effect deadline expired; create a new logical operation');
-                next.effects[request.effectId] = { ...effect, status: 'pending', replayAuthorized: true, error: undefined };
+            if (request.outcome.type === 'retry' || request.outcome.type === 'reconcile') {
+                if (request.outcome.type==='retry'&&(effect.deadlineAt ?? Infinity) <= Date.now()) throw new Error('Effect deadline expired; create a new logical operation');
+                next.effects[request.effectId] = { ...effect, status: 'pending', replayAuthorized: request.outcome.type==='retry', error: undefined };
             } else {
                 const completed = request.outcome.type === 'completed';
                 next.effects[request.effectId] = { ...effect, status: completed ? 'succeeded' : 'failed',
