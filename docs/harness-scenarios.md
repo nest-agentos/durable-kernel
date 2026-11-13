@@ -20,7 +20,7 @@
 
 0.1.0 验收共 401 项测试：349 项单元/契约、52 项真实进程；独立 ESM/CJS、NodeNext 声明及 tarball 运行消费通过。表中的源码证据链接指向独立仓库，安装包不附带测试源码。
 
-真实进程矩阵分别在根后端和挂载模块运行，使用 LocalFS / SQLite，不依赖 MindOS 应用。进程之间的 Node IPC 只传测试控制命令与断言结果，业务消息经 Kernel 自身持久 outbox/inbox 投递。
+真实进程矩阵分别在根后端和挂载模块运行，使用 LocalFS / SQLite，不依赖 NestOS 应用。进程之间的 Node IPC 只传测试控制命令与断言结果，业务消息经 Kernel 自身持久 outbox/inbox 投递。
 
 ```bash
 pnpm typecheck

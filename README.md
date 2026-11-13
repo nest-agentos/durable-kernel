@@ -1,6 +1,6 @@
 # @nestos/durable-kernel
 
-基于事务性 SeqFile 的持久执行内核。支持 Session 内多任务、任务依赖和父子关系、持久消息、共享状态、资源与预算，以及停止后的恢复。唯一运行依赖为 `@nestos/vfs-core`；不依赖 MindOS、LLM、UI 或具体工具。
+基于事务性 SeqFile 的持久执行内核。支持 Session 内多任务、任务依赖和父子关系、持久消息、共享状态、资源与预算，以及停止后的恢复。唯一运行依赖为 `@nestos/vfs-core`；不依赖 NestOS、LLM、UI 或具体工具。
 
 文档：[接口参考](./docs/api.md) · [事件契约](./docs/events.md) · [版本记录](./docs/changelog.md)。文档随 npm 制品提供。另见[存储与通知](./docs/storage.md)、[持久定时运行](./docs/scheduling.md)和[文本归档](./docs/archives.md)。
 
