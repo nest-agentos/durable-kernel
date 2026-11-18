@@ -838,7 +838,7 @@ describe('Kernel durable kernel', () => {
         const task = await session.submit({ program: { kind: 'test.echo', version: '1' }, input: 'history' });
         await task.wait({ timeoutMs: 2_000 });
 
-        expect((await task.history()).map(snapshot => snapshot.status)).toEqual(['ready', 'running', 'succeeded']);
+        expect((await task.history()).map(snapshot => snapshot.status)).toEqual(['running', 'succeeded']);
         expect((await task.attempts()).map(attempt => attempt.outcome)).toEqual(['completed']);
     });
 

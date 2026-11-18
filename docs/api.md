@@ -452,3 +452,5 @@ Automatic indexed recovery requires Session storage and catalog to share one `IF
 `taskExecutionStat(task, tasks)` projects `settled`, `indeterminate` and an optional safe error code from one Session snapshot. It includes only the same Session/root identity; a terminal root does not settle outstanding descendant effects. It neither activates execution nor acquires a writer.
 
 Shared-state writers can pass `history: 'latest'` when updating a recovery checkpoint. The transaction publishes the new revision, captures waiter evidence, and removes the superseded revision. CAS and monotonic version numbering still apply. Existing older history can be reclaimed separately. Ordinary shared writes retain version history.
+
+Task snapshots retain up to four revisions during execution and two at terminal status. Exact reads of expired versions return an empty page. The current record and committed receipts have independent lifetimes.

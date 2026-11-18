@@ -1135,6 +1135,17 @@ describe('durable harness protocols', () => {
         expect(await fs.meta.seq!.getEntry(eventsPath(binding.rootPath), taskEventFirstKey(task.id))).toBeNull();
     });
 
+    it('keeps four runnable snapshots and two terminal snapshots including the final pinned page', async () => {
+        const task = await store.createTask(binding, 's', spec);
+        for (let step = 0; step < 10; step++) await store.signalTask(binding, task.id, {type: 'advance'});
+        expect((await store.taskHistory(binding, task.id)).map(row => row.version)).toEqual([7, 8, 9, 10]);
+        expect((await store.taskHistoryPage(binding, task.id, {limit: 1})).items[0].version).toBe(7);
+        await store.cancelTask(binding, task.id);
+        const final = await store.readTask(binding, task.id);
+        expect((await store.taskHistory(binding, task.id)).map(row => row.version)).toEqual([final.version - 1, final.version]);
+        expect((await store.taskHistoryPage(binding, task.id, {afterVersion: 8, throughVersion: 9})).items).toEqual([]);
+    });
+
     it('compacts Task version history without touching the authoritative record or facts', async () => {
         const task = await store.createTask(binding, 's', spec);
         // Every versioned write records a snapshot; signals advance the record cheaply.
@@ -1143,8 +1154,7 @@ describe('durable harness protocols', () => {
         }
         const before = await store.readTask(binding, task.id);
         const versions = (await store.taskHistory(binding, task.id)).map(item => item.version);
-        expect(versions[0]).toBe(0);
-        expect(versions).toHaveLength(before.version + 1);
+        expect(versions).toEqual([1, 2, 3, 4]);
 
         // Keep the newest two snapshots; the main record stays authoritative.
         const activity = await fs.meta.seq!.getEntry(eventsPath(binding.rootPath), 'last-execution-activity-at');
@@ -1165,7 +1175,7 @@ describe('durable harness protocols', () => {
         // Compacting again is a no-op.
         expect(await store.compactTaskHistory(binding, task.id, { keepVersions: 2 })).toEqual({ removed: 0, keptFrom: compacted.keptFrom });
         // The default window keeps everything at this size.
-        expect(await store.compactTaskHistory(binding, task.id)).toEqual({ removed: 0, keptFrom: 0 });
+        expect(await store.compactTaskHistory(binding, task.id)).toEqual({ removed: 0, keptFrom: 1 });
         expect((await store.taskAttempts(binding, task.id))).toEqual([]);
     });
 
@@ -1174,8 +1184,8 @@ describe('durable harness protocols', () => {
         for (let step = 0; step < 4; step++) await store.signalTask(binding, task.id, { type: 'advance' });
         const result = await store.compactTaskHistory(binding, task.id, { keepVersions: 2, beforeVersion });
         const retained = (await store.taskHistory(binding, task.id)).map(item => item.version);
-        expect(retained).toEqual(beforeVersion === 0 ? [0, 1, 2, 3, 4] : beforeVersion === 2 ? [2, 3, 4] : [3, 4]);
-        expect(result.removed).toBe(5 - retained.length);
+        expect(retained).toEqual(beforeVersion === 0 ? [1, 2, 3, 4] : beforeVersion === 2 ? [2, 3, 4] : [3, 4]);
+        expect(result.removed).toBe(4 - retained.length);
     });
 
     it.each([0, -1, 1.5, NaN, Infinity])('rejects invalid history retention count %s without deleting data', async keepVersions => {

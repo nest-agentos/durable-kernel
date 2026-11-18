@@ -5,6 +5,7 @@ import {declareEffectLayoutTx} from './effect-layout';
 import { indexTaskActivity } from './activity-index';
 // SeqFileKernelStore 的领域辅助函数（任务、租约、索引、资源、预算、上下文、等待）。
 // 底层 SeqFile 原语（路径/键名/编码/事务/事件追加）在 seqfile-core.ts，此处 re-export。
+import {seqKeys} from '@nestos/vfs-core/seq';
 import type { ISeqFileTransaction } from '@nestos/vfs-core';
 import type {
     BudgetAccount,
@@ -144,8 +145,17 @@ export async function writeTaskTx(tx: ISeqFileTransaction, root: string, task: T
     await declareEffectLayoutTx(tx, root, task);
     await indexTaskActivity(tx, root, task);
     const value = encode(task);
-    await tx.setEntry(taskPath(root, task.id), TASK_KEY, value);
-    await tx.setEntry(taskPath(root, task.id), snapshotKey(task.version), value);
+    const path = taskPath(root, task.id);
+    await tx.setEntry(path, TASK_KEY, value);
+    await tx.setEntry(path, snapshotKey(task.version), value);
+    const keep = isTerminal(task.status) ? 2 : 4;
+    if (task.version >= keep) {
+        const first = snapshotKey(task.version - keep + 1);
+        for await (const key of seqKeys(tx, path, 'snapshot/')) {
+            if (key >= first) break;
+            await tx.deleteEntry(path, key);
+        }
+    }
 }
 
 export async function finishAttemptTx(

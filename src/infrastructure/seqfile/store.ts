@@ -999,12 +999,21 @@ export class SeqFileKernelStore {
         const current = await this.readTask(binding, taskId);
         const through = query.throughVersion ?? current.version;
         if (!Number.isSafeInteger(through) || through < 0 || through > current.version) throw kernelError(KernelErrorCode.INVALID_SPEC, 'Invalid Task history upper bound');
-        const end = Math.min(through, after + limit);
-        const keys: string[] = [];
-        for (let version = after + 1; version <= end; version++) keys.push(snapshotKey(version));
-        const rows = keys.length ? await seq(binding.fs).getEntries(taskPath(binding.rootPath, taskId), keys) : {};
-        return { items: keys.flatMap(key => rows[key] ? [decode<TaskRecord>(rows[key])] : []),
-            throughVersion: through, ...(end < through ? { nextAfterVersion: end } : {}) };
+        const reader = seq(binding.fs), path = taskPath(binding.rootPath, taskId);
+        const page = async (start: number) => {
+            const end = Math.min(through, start + limit - 1), keys: string[] = [];
+            for (let version = start; version <= end; version++) keys.push(snapshotKey(version));
+            const rows = keys.length ? await reader.getEntries(path, keys) : {};
+            return {items: keys.flatMap(key => rows[key] ? [decode<TaskRecord>(rows[key])] : []),
+                throughVersion: through, ...(end < through ? {nextAfterVersion: end} : {})};
+        };
+        const first = await page(after + 1);
+        if (first.items.length || first.nextAfterVersion === undefined) return first;
+        let next = through + 1;
+        await reader.walkEntries(path, row => {
+            next = Number(row.key.slice('snapshot/'.length)); return false;
+        }, {keyPrefix: 'snapshot/', after: snapshotKey(first.nextAfterVersion), order: 'key', limit: 1});
+        return page(next);
     }
 
     async taskHistory(binding: ResolvedStorageBinding, taskId: TaskId, afterVersion = -1): Promise<TaskRecord[]> {
@@ -1030,7 +1039,7 @@ export class SeqFileKernelStore {
         taskId: TaskId,
         options: { keepVersions?: number; beforeVersion?: number } = {},
     ): Promise<{ removed: number; keptFrom: number }> {
-        const keepVersions = options.keepVersions ?? 20;
+        const keepVersions = options.keepVersions ?? 4;
         const beforeVersion = options.beforeVersion;
         if (!Number.isSafeInteger(keepVersions) || keepVersions < 1) throw new Error('keepVersions must be a positive safe integer');
         if (beforeVersion !== undefined && (!Number.isSafeInteger(beforeVersion) || beforeVersion < 0))
