@@ -435,7 +435,7 @@ export class SeqFileKernelStore {
                 const session = await requireSessionTx(tx, binding.rootPath);
                 await indexSharedRecovery(tx, catalogPath(this.catalog.rootPath), session.id, key, recovery.scope, recovery.pending);
             }
-            await writeSharedRevision(tx, binding.rootPath, entry);
+            await writeSharedRevision(tx, binding.rootPath, entry, options.history);
             await appendEventTx(tx, binding.rootPath, (await requireSessionTx(tx, binding.rootPath)).id,
                 options.taskId, 'session.shared.set', { key, version: entry.version });
             return entry;
@@ -464,7 +464,7 @@ export class SeqFileKernelStore {
                 (await requireSessionTx(tx, binding.rootPath)).id, key, current.recoveryScope, false);
             const revision = deletedRevision(key, current.version + 1, options.taskId);
             await tx.deleteEntry(sharedPath(binding.rootPath), sharedKey(key));
-            await writeSharedHistory(tx, binding.rootPath, revision);
+            await writeSharedHistory(tx, binding.rootPath, revision, options.history);
             await appendEventTx(tx, binding.rootPath, (await requireSessionTx(tx, binding.rootPath)).id,
                 options.taskId, 'session.shared.deleted', { key, version: current.version });
             return true;

@@ -629,6 +629,18 @@ describe('Kernel durable kernel', () => {
             .toEqual([false, false, true, false]);
     });
 
+    it('replaces recovery checkpoints atomically while preserving versions and CAS', async () => {
+        const session = await kernel.createSession({id: 'checkpoints', storage: binding});
+        await session.setShared('cursor', 1, {expectedVersion: null, history: 'latest'});
+        await session.setShared('cursor', 2, {expectedVersion: 1, history: 'latest'});
+        await expect(session.setShared('cursor', 3, {expectedVersion: 1, history: 'latest'})).rejects.toMatchObject({code: 'CONFLICT'});
+        expect((await session.sharedHistory('cursor')).map(row => row.value)).toEqual([2]);
+        await session.deleteShared('cursor', {expectedVersion: 2, history: 'latest'});
+        expect(await session.sharedHistory('cursor')).toMatchObject([{version: 3, deleted: true}]);
+        await session.setShared('cursor', 4, {expectedVersion: null, history: 'latest'});
+        expect(await session.sharedHistory('cursor')).toMatchObject([{version: 4, value: 4}]);
+    });
+
     it('commits task state and session shared state atomically', async () => {
         kernel.registerProgram(sharedStateProgram());
         const session = await kernel.createSession({ id: 'session-one', storage: binding });

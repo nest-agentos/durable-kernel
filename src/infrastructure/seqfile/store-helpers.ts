@@ -587,20 +587,26 @@ export async function writeSharedRevision<T extends import('../../domain/types')
     tx: ISeqFileTransaction,
     root: string,
     entry: SharedStateEntry<T>,
+    history?: 'latest',
 ): Promise<void> {
     await tx.setEntry(sharedPath(root), sharedKey(entry.key), encode(entry));
-    await writeSharedHistory(tx, root, { ...entry, deleted: false });
+    await writeSharedHistory(tx, root, { ...entry, deleted: false }, history);
 }
 
 export async function writeSharedHistory(
     tx: ISeqFileTransaction,
     root: string,
     revision: SharedStateRevision,
+    history?: 'latest',
 ): Promise<void> {
     const version = String(revision.version).padStart(16, '0');
     await tx.setEntry(sharedPath(root), sharedHeadKey(revision.key), String(revision.version));
     await tx.setEntry(sharedPath(root), `${sharedHistoryPrefix(revision.key)}${version}`, encode(revision));
     await refreshWaiters(tx, root, revision.key);
+    if (history === 'latest' && revision.version > 1) {
+        const previous = String(revision.version - 1).padStart(16, '0');
+        await tx.deleteEntry(sharedPath(root), sharedHistoryPrefix(revision.key) + previous);
+    }
 }
 
 export function deletedRevision(key: string, version: number, taskId?: TaskId): SharedStateRevision {

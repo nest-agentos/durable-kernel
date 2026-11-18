@@ -95,6 +95,8 @@ export interface LeaseGuardOptions {
 export interface InteractionResponseOptions extends LeaseGuardOptions { requestId?: string; }
 
 export interface SharedStateWriteOptions extends LeaseGuardOptions {
+    /** Reclaim the superseded revision after publishing the new recovery checkpoint. */
+    history?: 'latest';
     /** Publish or finish host recovery responsibility atomically with this shared value. */
     recovery?: {scope: string; pending: boolean};
     expectedVersion?: number | null;
@@ -515,9 +517,10 @@ export interface EffectSessionState {
         key: string,
         value: T,
         expectedVersion?: number | null,
+        history?: 'latest',
     ): Promise<SharedStateEntry<T>>;
     /** Atomically admit a new continuation while runnable; undefined retains all pause barriers. */
-    setIfRunning?<T extends JsonValue>(key: string, value: T, expectedVersion?: number | null): Promise<SharedStateEntry<T> | undefined>;
+    setIfRunning?<T extends JsonValue>(key: string, value: T, expectedVersion?: number | null, history?: 'latest'): Promise<SharedStateEntry<T> | undefined>;
 }
 
 export interface AuthorizedEffectGrant {

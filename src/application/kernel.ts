@@ -1675,12 +1675,12 @@ export class Kernel implements KernelRegistration, KernelViewPort, KernelInspect
                 sessionState: {
                     get: <T extends import('../domain/types').JsonValue>(key: string) =>
                         this.store.getShared<T>(binding, key),
-                    setIfRunning: <T extends import('../domain/types').JsonValue>(key: string, value: T, expectedVersion?: number | null) =>
-                        this.store.setShared(binding, key, value, { taskId: task.id, expectedVersion }, claim, true),
+                    setIfRunning: <T extends import('../domain/types').JsonValue>(key: string, value: T, expectedVersion?: number | null, history?: 'latest') =>
+                        this.store.setShared(binding, key, value, { taskId: task.id, expectedVersion, history }, claim, true),
                     set: <T extends import('../domain/types').JsonValue>(
-                        key: string, value: T, expectedVersion?: number | null,
+                        key: string, value: T, expectedVersion?: number | null, history?: 'latest',
                     ) => this.store.setShared(binding, key, value, {
-                        taskId: task.id, expectedVersion,
+                        taskId: task.id, expectedVersion, history,
                     }, claim),
                 },
                 emit: async (event: { type: string; payload?: unknown }): Promise<void> => {
