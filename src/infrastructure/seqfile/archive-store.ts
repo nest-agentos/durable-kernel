@@ -9,7 +9,7 @@ import { canonical } from '../../application/canonical';
 import { ArchiveHash } from '../../application/archive-hash';
 import { archiveDefaults } from '../../application/archive-codec';
 import { appendEventTx, catalogPath, createId, decode, encode, ensureSessionLayout, ensureTaskLayout, eventsPath, graphPath, indexPath, join, sessionPath, sessionSeqFiles, sharedPath, taskPath, transaction } from './seqfile-core';
-import { indexTask, requireSessionTx, taskFromSpec } from './store-helpers';
+import { indexTask, preserveTaskVersion, requireSessionTx, taskFromSpec } from './store-helpers';
 
 export function assertQuiescent(session: SessionRecord, tasks: TaskRecord[]): void {
     if (!['suspended','closed','archived'].includes(session.status) || tasks.some(task => task.currentAttempt || task.status === 'running'
@@ -125,7 +125,9 @@ async function importRecordsTx(tx: ISeqFileTransaction, catalog: ResolvedStorage
         const current = {...task, sessionPaused: true, recoveryIndexPath: path};
         await indexTaskRecovery(tx, current);
         await indexRuntimeTask(tx, current);
-        await tx.setEntry(taskPath(target.rootPath, current.id), 'record', encode(current));
+        const taskFile = taskPath(target.rootPath, current.id);
+        if (!fresh && encode(task) !== encode(current)) await preserveTaskVersion(tx, taskFile, task.version, encode(task));
+        await tx.setEntry(taskFile, 'record', encode(current));
         await indexTaskActivity(tx, target.rootPath, current);
         await indexTask(tx, target.rootPath, current); await tx.setEntry(path, `task/${current.id}`, id);
         if (fresh) await createForkRelations(tx, target, current);

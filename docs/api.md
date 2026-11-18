@@ -454,3 +454,5 @@ Automatic indexed recovery requires Session storage and catalog to share one `IF
 Shared-state writers can pass `history: 'latest'` when updating a recovery checkpoint. The transaction publishes the new revision, captures waiter evidence, and removes the superseded revision. CAS and monotonic version numbering still apply. Existing older history can be reclaimed separately. Ordinary shared writes retain version history.
 
 Task snapshots retain up to four revisions during execution and two at terminal status. Exact reads of expired versions return an empty page. The current record and committed receipts have independent lifetimes.
+
+The current Task record supplies the current snapshot. Advancing the version freezes the previous one atomically. Lease renewals preserve the original pinned representation before updating the live record without a version change. Explicit snapshots from older stores still take precedence in history reads.

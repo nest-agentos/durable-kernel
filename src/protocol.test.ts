@@ -805,7 +805,11 @@ describe('durable harness protocols', () => {
         const task = await store.createTask(binding, 's', spec);
         const claim = (await store.claimReady(binding, 'w', 10_000))!;
         await store.signalTask(binding, task.id, { type: 'follow-up', payload: 'new' });
-        expect(await store.renewLease(binding, claim, 10_000)).toBe(true);
+        const published = await store.readTask(binding, task.id);
+        expect(await store.renewLease(binding, claim, 20_000)).toBe(true);
+        const pinned = await store.taskHistoryPage(binding, task.id, {afterVersion: published.version - 1, throughVersion: published.version});
+        expect(pinned.items).toEqual([published]);
+        expect((await store.readTask(binding, task.id)).currentAttempt!.leaseUntil).toBeGreaterThan(published.currentAttempt!.leaseUntil);
         const next = await store.commitTask(binding, claim, { ...claim.task, state: 1, initialized: true, status: 'waiting', currentAttempt: undefined, wait: { type: 'signal' } }, 'task.waiting');
         expect(next.status).toBe('ready');
         expect(next.pendingEvents).toEqual([expect.objectContaining({ type: 'signal', signal: { type: 'follow-up', payload: 'new' } })]);
@@ -1133,6 +1137,22 @@ describe('durable harness protocols', () => {
         await expect(store.pruneTaskEvents(binding, task.id, { keepEvents: 1 })).rejects.toThrow('scope mismatch');
         expect(await store.events(binding)).toEqual(before);
         expect(await fs.meta.seq!.getEntry(eventsPath(binding.rootPath), taskEventFirstKey(task.id))).toBeNull();
+    });
+
+    it('uses the main record for the current version and freezes it only on advancement', async () => {
+        const task = await store.createTask(binding, 's', spec), path = taskPath(binding.rootPath, task.id);
+        const key = 'snapshot/0000000000000000';
+        expect(await fs.meta.seq!.getEntry(path, key)).toBeNull();
+        expect((await store.taskHistoryPage(binding, task.id, {limit: 1})).items).toEqual([task]);
+        await fs.meta.seq!.setEntry(path, key, JSON.stringify(task));
+        expect(await store.taskHistory(binding, task.id)).toEqual([task]);
+        await store.signalTask(binding, task.id, {type: 'advance'});
+        const current = await store.readTask(binding, task.id);
+        expect(JSON.parse((await fs.meta.seq!.getEntry(path, key))!)).toEqual(task);
+        expect(await fs.meta.seq!.getEntry(path, 'snapshot/0000000000000001')).toBeNull();
+        await store.compactTaskHistory(binding, task.id, {keepVersions: 1});
+        expect(await store.taskHistory(binding, task.id)).toEqual([current]);
+        expect((await store.taskHistoryPage(binding, task.id, {limit: 1})).items).toEqual([current]);
     });
 
     it('keeps four runnable snapshots and two terminal snapshots including the final pinned page', async () => {

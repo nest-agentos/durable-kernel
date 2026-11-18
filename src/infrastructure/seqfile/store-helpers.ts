@@ -139,6 +139,12 @@ export async function requireTaskTx(tx: ISeqFileTransaction, root: string, taskI
     return task;
 }
 
+/** Freeze the published version before replacing or renewing its authoritative record. */
+export async function preserveTaskVersion(tx: ISeqFileTransaction, path: string, version: number, raw: string): Promise<void> {
+    const key = snapshotKey(version);
+    if (await tx.getEntry(path, key) === null) await tx.setEntry(path, key, raw);
+}
+
 export async function writeTaskTx(tx: ISeqFileTransaction, root: string, task: TaskRecord): Promise<void> {
     await indexRuntimeTask(tx, task);
     await indexTaskRecovery(tx, task);
@@ -146,8 +152,12 @@ export async function writeTaskTx(tx: ISeqFileTransaction, root: string, task: T
     await indexTaskActivity(tx, root, task);
     const value = encode(task);
     const path = taskPath(root, task.id);
+    const previous = await tx.getEntry(path, TASK_KEY);
+    if (previous !== null) {
+        const prior = decode<TaskRecord>(previous);
+        if (prior.version !== task.version) await preserveTaskVersion(tx, path, prior.version, previous);
+    }
     await tx.setEntry(path, TASK_KEY, value);
-    await tx.setEntry(path, snapshotKey(task.version), value);
     const keep = isTerminal(task.status) ? 2 : 4;
     if (task.version >= keep) {
         const first = snapshotKey(task.version - keep + 1);

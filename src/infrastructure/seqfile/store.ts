@@ -1,3 +1,4 @@
+import {historyPage, withTaskHistory} from './task-history';
 import {indexRuntimeMessage, RUNTIME_RECOVERY_PREFIX} from './runtime-recovery-index';
 import {taskStat} from '../../domain/status';
 import {decodeRecoveryEntry, indexSharedRecovery, recoveryPrefix, validateTaskRecovery} from './task-recovery-index';
@@ -24,7 +25,7 @@ import { assertCustomEventType } from '../../public/events';
 import { taskRecoveryIssues } from '../../application/recovery-issues';
 import { taskTreeIds } from '../../domain/task-tree';
 import { prunedSequenceKey, retentionBoundary } from './event-store';
-import { snapshotKey, ensureTaskEventIndexTx, taskEventCountKey, taskEventFirstKey, taskEventKey } from './seqfile-core';
+import { ensureTaskEventIndexTx, taskEventCountKey, taskEventFirstKey, taskEventKey } from './seqfile-core';
 
 import type {
     BudgetAccount,
@@ -55,7 +56,7 @@ import type {
     WorkspaceSnapshot,
     BudgetUsage,
 } from '../../domain/types';
-import { advanceDependants,allHandlesTx,appendEventTx,applySharedMutations,applySpawnsTx,assertBudgetCapacity,assertBudgetVersion,assertClaim,assertContextHead,assertRightsSubset,assertSharedVersion,attemptKey,authorizeHandleTx,budgetAccount,budgetKey,budgetUsageKey,cancelActiveEffects,catalogPath,claimMatches,claimTask,clearSeqRecords,collectContextHistory,contextBranchKey,contextCommitKey,contextPath,createId,decode,deletedRevision,dependencySatisfied,descendantHandleIds,effectAttempt,effectClaimMatches,encode,ensureSeqFile,ensureSessionLayout,ensureTaskLayout,ensureTree,eventsPath,finishAttemptTx,finishEffect,graphPath,handleKey,indexPath,indexTask,isTerminal,join,messagesPath,nextSharedVersion,outboxKey,readBudgetTx,readBudgetUsageTx,readContextBranchTx,readMessages,readSharedTx,readTaskTx,readyCandidates,recoverEffect,registerTaskWaitTx,replaceEffectAttempt,requireContextParents,requireHandleTx,requireResourceTx,requireSessionTx,requireTaskTx,requireTransactionalSeq,resourceBudgetsTx,resourceKey,resourcesPath,seq,sessionPath,sessionRecordPaths,sharedEntry,sharedHistoryPrefix,sharedKey,sharedPath,taskFromSpec,taskPath,terminalDependency,transaction,uniqueRights,unregisterTaskWaitTx,validateSharedKey,wakeFromPendingEvents,wakeTaskWaiters,workspaceDiffKey,workspaceSnapshotKey,writeContextBranchTx,writeSharedHistory,writeSharedRevision,writeTaskTx } from './store-helpers';
+import { advanceDependants,allHandlesTx,appendEventTx,applySharedMutations,applySpawnsTx,assertBudgetCapacity,assertBudgetVersion,assertClaim,assertContextHead,assertRightsSubset,assertSharedVersion,attemptKey,authorizeHandleTx,budgetAccount,budgetKey,budgetUsageKey,cancelActiveEffects,catalogPath,claimMatches,claimTask,clearSeqRecords,collectContextHistory,contextBranchKey,contextCommitKey,contextPath,createId,decode,deletedRevision,dependencySatisfied,descendantHandleIds,effectAttempt,effectClaimMatches,encode,ensureSeqFile,ensureSessionLayout,ensureTaskLayout,ensureTree,eventsPath,finishAttemptTx,finishEffect,graphPath,handleKey,indexPath,indexTask,isTerminal,join,messagesPath,nextSharedVersion,outboxKey,preserveTaskVersion,readBudgetTx,readBudgetUsageTx,readContextBranchTx,readMessages,readSharedTx,readTaskTx,readyCandidates,recoverEffect,registerTaskWaitTx,replaceEffectAttempt,requireContextParents,requireHandleTx,requireResourceTx,requireSessionTx,requireTaskTx,requireTransactionalSeq,resourceBudgetsTx,resourceKey,resourcesPath,seq,sessionPath,sessionRecordPaths,sharedEntry,sharedHistoryPrefix,sharedKey,sharedPath,taskFromSpec,taskPath,terminalDependency,transaction,uniqueRights,unregisterTaskWaitTx,validateSharedKey,wakeFromPendingEvents,wakeTaskWaiters,workspaceDiffKey,workspaceSnapshotKey,writeContextBranchTx,writeSharedHistory,writeSharedRevision,writeTaskTx } from './store-helpers';
 import { KernelErrorCode, kernelError } from '../../domain/errors';
 
 const SESSION_KEY = 'record';
@@ -993,37 +994,21 @@ export class SeqFileKernelStore {
         });
     }
 
-    async taskHistoryPage(binding: ResolvedStorageBinding, taskId: TaskId, query: import('../../domain/types').TaskHistoryQuery = {}): Promise<import('../../domain/types').TaskHistoryPage> {
-        const after = query.afterVersion ?? -1, limit = query.limit ?? 100;
-        if (!Number.isSafeInteger(after) || after < -1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw kernelError(KernelErrorCode.INVALID_SPEC, 'Invalid Task history page');
-        const current = await this.readTask(binding, taskId);
-        const through = query.throughVersion ?? current.version;
-        if (!Number.isSafeInteger(through) || through < 0 || through > current.version) throw kernelError(KernelErrorCode.INVALID_SPEC, 'Invalid Task history upper bound');
-        const reader = seq(binding.fs), path = taskPath(binding.rootPath, taskId);
-        const page = async (start: number) => {
-            const end = Math.min(through, start + limit - 1), keys: string[] = [];
-            for (let version = start; version <= end; version++) keys.push(snapshotKey(version));
-            const rows = keys.length ? await reader.getEntries(path, keys) : {};
-            return {items: keys.flatMap(key => rows[key] ? [decode<TaskRecord>(rows[key])] : []),
-                throughVersion: through, ...(end < through ? {nextAfterVersion: end} : {})};
-        };
-        const first = await page(after + 1);
-        if (first.items.length || first.nextAfterVersion === undefined) return first;
-        let next = through + 1;
-        await reader.walkEntries(path, row => {
-            next = Number(row.key.slice('snapshot/'.length)); return false;
-        }, {keyPrefix: 'snapshot/', after: snapshotKey(first.nextAfterVersion), order: 'key', limit: 1});
-        return page(next);
+    async taskHistoryPage(binding: ResolvedStorageBinding, taskId: TaskId, query: import('../../domain/types').TaskHistoryQuery = {}) {
+        return withTaskHistory(binding, taskId, (reader, path, current) => historyPage(reader, path, current, query));
     }
 
     async taskHistory(binding: ResolvedStorageBinding, taskId: TaskId, afterVersion = -1): Promise<TaskRecord[]> {
-        const snapshots: TaskRecord[] = [];
-        await seq(binding.fs).walkEntries(taskPath(binding.rootPath, taskId), entry => {
-            const snapshot = decode<TaskRecord>(entry.value);
-            if (snapshot.version > afterVersion) snapshots.push(snapshot);
-            return true;
-        }, { keyPrefix: 'snapshot/' });
-        return snapshots.sort((a, b) => a.version - b.version);
+        return withTaskHistory(binding, taskId, async (reader, path, current) => {
+            const snapshots = new Map<number, TaskRecord>();
+            if (current.version > afterVersion) snapshots.set(current.version, current);
+            await reader.walkEntries(path, entry => {
+                const snapshot = decode<TaskRecord>(entry.value);
+                if (snapshot.version > afterVersion && snapshot.version <= current.version) snapshots.set(snapshot.version, snapshot);
+                return true;
+            }, {keyPrefix: 'snapshot/'});
+            return [...snapshots.values()].sort((a, b) => a.version - b.version);
+        });
     }
 
     /**
@@ -1122,6 +1107,7 @@ export class SeqFileKernelStore {
             if (!claimMatches(task, claim) || task.currentAttempt!.leaseUntil <= Date.now() || await hasCancelledAncestorTx(tx, binding.rootPath, task)) return false;
             const attempt = { ...task.currentAttempt!, leaseUntil: Date.now() + leaseMs };
             const next = { ...task, currentAttempt: attempt, updatedAt: Date.now() };
+            await preserveTaskVersion(tx, taskPath(binding.rootPath, task.id), task.version, encode(task));
             await tx.setEntry(taskPath(binding.rootPath, task.id), TASK_KEY, encode(next));
             await tx.setEntry(taskPath(binding.rootPath, task.id), attemptKey(attempt.id), encode(attempt));
             return true;
@@ -1358,6 +1344,7 @@ export class SeqFileKernelStore {
             const attempt = { ...effect.currentAttempt!, leaseUntil: Date.now() + leaseMs };
             const nextEffect = replaceEffectAttempt(effect, attempt);
             const next = { ...task, effects: { ...task.effects, [claim.effectId]: nextEffect } };
+            await preserveTaskVersion(tx, taskPath(binding.rootPath, task.id), task.version, encode(task));
             await tx.setEntry(taskPath(binding.rootPath, task.id), TASK_KEY, encode(next));
             return true;
         });
