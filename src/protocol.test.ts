@@ -1147,8 +1147,10 @@ describe('durable harness protocols', () => {
         expect(versions).toHaveLength(before.version + 1);
 
         // Keep the newest two snapshots; the main record stays authoritative.
+        const activity = await fs.meta.seq!.getEntry(eventsPath(binding.rootPath), 'last-execution-activity-at');
         const oldest = versions[0];
         const compacted = await store.compactTaskHistory(binding, task.id, { keepVersions: 2 });
+        expect(await fs.meta.seq!.getEntry(eventsPath(binding.rootPath), 'last-execution-activity-at')).toBe(activity);
         expect(compacted.keptFrom).toBe(before.version - 1);
         expect(compacted.removed).toBe(versions.length - 2);
         expect((await store.taskHistory(binding, task.id)).map(item => item.version))

@@ -182,7 +182,7 @@ export async function appendEventTx(
     const event: EventEnvelope = { schemaVersion: 2, ...identity, sequence, sessionId, taskId, type,
         payload: stateEvent ? session : payload, occurredAt: Date.now() };
     await tx.setEntry(eventsPath(root), `event/${String(sequence).padStart(16, '0')}`, encode(event));
-    if(taskId&&type!=='task.events.pruned') await indexExecutionTime(tx,root,event.occurredAt);
+    if(taskId && type !== 'task.events.pruned' && type !== 'task.history.compacted') await indexExecutionTime(tx,root,event.occurredAt);
     if (taskId && await tx.getEntry(eventsPath(root), 'task-event-index-version') === '1') await indexTaskEventTx(tx, root, event);
     return sequence;
 }
