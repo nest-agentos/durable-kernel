@@ -1120,6 +1120,17 @@ describe('durable harness protocols', () => {
         await expect(store.pruneTaskEvents(binding, task.id)).rejects.toThrow('retention watermark');
     });
 
+    it('bounds guarded event pruning and preserves the protected suffix', async () => {
+        const task = await store.createTask(binding, 's', spec);
+        for (let step = 0; step < 4; step++) await store.signalTask(binding, task.id, {type: 'external', payload: {step}});
+        const before = await store.taskEventPage(binding, task.id);
+        const options = {keepEvents: 1, maxRemoved: 1, canPrune: (event: {type: string}) => event.type === 'task.created'};
+        expect(await store.pruneTaskEvents(binding, task.id, options)).toEqual({removed: 1, firstAvailableIndex: 2});
+        expect(await store.pruneTaskEvents(binding, task.id, options)).toEqual({removed: 0, firstAvailableIndex: 2});
+        const after = await store.taskEventPage(binding, task.id);
+        expect(after.items.slice(0, -1)).toEqual(before.items.slice(1));
+    });
+
     it.each([0, -1, 1.5, NaN, Infinity])('rejects invalid event retention count %s', async keepEvents => {
         const task = await store.createTask(binding, 's', spec);
         const before = await store.events(binding);

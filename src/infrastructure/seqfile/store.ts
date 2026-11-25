@@ -1543,10 +1543,12 @@ export class SeqFileKernelStore {
     async pruneTaskEvents(
         binding: ResolvedStorageBinding,
         taskId: TaskId,
-        options: { keepEvents?: number } = {},
+        options: { keepEvents?: number; canPrune?: (event: EventEnvelope) => boolean; maxRemoved?: number } = {},
     ): Promise<{ removed: number; firstAvailableIndex: number }> {
         const keepEvents = options.keepEvents ?? 200;
         if (!Number.isSafeInteger(keepEvents) || keepEvents < 1) throw new Error('keepEvents must be a positive safe integer');
+        const maxRemoved = options.maxRemoved ?? Number.MAX_SAFE_INTEGER;
+        if (!Number.isSafeInteger(maxRemoved) || maxRemoved < 1) throw new Error('maxRemoved must be a positive safe integer');
         return transaction(binding.fs, async tx => {
             const task = await requireTaskTx(tx, binding.rootPath, taskId);
             await ensureTaskEventIndexTx(tx, binding.rootPath);
@@ -1555,7 +1557,7 @@ export class SeqFileKernelStore {
             if (!Number.isSafeInteger(count) || count < 0) throw kernelError(KernelErrorCode.INVALID_SPEC, 'Invalid Task event count');
             const first = Number(await tx.getEntry(path, taskEventFirstKey(taskId)) ?? 1);
             if (!Number.isSafeInteger(first) || first < 1 || first > count + 1) throw kernelError(KernelErrorCode.INVALID_SPEC, 'Invalid Task event retention watermark');
-            const nextFirst = Math.max(first, count - keepEvents + 1);
+            const nextFirst = Math.min(first + maxRemoved, count - keepEvents + 1);
             if (nextFirst <= first) return { removed: 0, firstAvailableIndex: first };
             const sessionPruned = await retentionBoundary(tx, path);
             let removed = 0;
@@ -1570,17 +1572,20 @@ export class SeqFileKernelStore {
                 const event = decode<EventEnvelope>(raw);
                 if (event.taskId !== taskId || event.sessionId !== task.sessionId || event.sequence !== sequence)
                     throw new Error('Task event index scope mismatch');
+                if (options.canPrune && !options.canPrune(event)) break;
                 await tx.deleteEntry(path, key);
                 await tx.deleteEntry(path, eventKey);
                 prunedThrough = Math.max(prunedThrough, sequence);
                 removed++;
             }
-            await tx.setEntry(path, taskEventFirstKey(taskId), String(nextFirst));
+            if (!removed) return { removed, firstAvailableIndex: first };
+            const firstAvailableIndex = first + removed;
+            await tx.setEntry(path, taskEventFirstKey(taskId), String(firstAvailableIndex));
             await tx.setEntry(path, prunedSequenceKey(taskId), String(prunedThrough));
             await tx.setEntry(path, prunedSequenceKey(), String(Math.max(sessionPruned, prunedThrough)));
             await appendEventTx(tx, binding.rootPath, task.sessionId, taskId, 'task.events.pruned',
-                { removed, firstAvailableIndex: nextFirst });
-            return { removed, firstAvailableIndex: nextFirst };
+                { removed, firstAvailableIndex });
+            return { removed, firstAvailableIndex };
         });
     }
 
